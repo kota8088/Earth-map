@@ -2,7 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -24,52 +25,42 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
+        uses: actions/checkout@v4
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Prepare HTML with ion token
+      - name: Replace token placeholder
         env:
-          accesstoken: ${{ secrets.ACCESSTOKEN }}
-        shell: bash
+          ACCESSTOKEN: ${{ secrets.ACCESSTOKEN }}
         run: |
-          python3 - <<'PY'
+          python - <<'PY'
+          import json
           import os
-          import re
           from pathlib import Path
 
-          token = os.environ.get("accesstoken", "").strip()
-
+          token = os.environ.get("ACCESSTOKEN", "")
           if not token:
-              raise SystemExit("Repository secret 'accesstoken' is missing.")
+              raise SystemExit("Repository Secret ACCESSTOKEN が設定されていません")
 
-          # Reject characters that could break a JavaScript string.
-          if not re.fullmatch(r"[A-Za-z0-9._~-]+", token):
-              raise SystemExit("Unexpected token format. Check the secret value.")
+          path = Path("index.html")
+          html = path.read_text(encoding="utf-8")
+          marker = '"__accesstoken__"'
 
-          source = Path("index.html")
-          if not source.is_file():
-              raise SystemExit("index.html was not found at the repository root.")
+          if marker not in html:
+              raise SystemExit('index.html に "__accesstoken__" がありません')
 
-          html = source.read_text(encoding="utf-8")
-          placeholder = "__accesstoken__"
-
-          if placeholder not in html:
-              raise SystemExit("Token placeholder was not found in index.html.")
-
-          output = Path("_site")
-          output.mkdir(exist_ok=True)
-          (output / "index.html").write_text(
-              html.replace(placeholder, token),
-              encoding="utf-8",
-          )
+          html = html.replace(marker, json.dumps(token))
+          path.write_text(html, encoding="utf-8")
           PY
 
+      - name: Prepare Pages files
+        run: |
+          mkdir -p _site
+          cp index.html _site/index.html
+
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
