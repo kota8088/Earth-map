@@ -1,596 +1,1233 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Earth · Moon · Mars Explorer</title>
+  <title>Cosmos Explorer — Earth / Moon / Mars</title>
 
-  <link
-    rel="stylesheet"
-    href="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Widgets/widgets.css"
-  >
+  <link rel="stylesheet"
+        href="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Widgets/widgets.css">
+  <script>
+    window.CESIUM_BASE_URL =
+      "https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/";
+  </script>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Cesium.js"></script>
 
   <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(8, 16, 32, .9);
+      --line: rgba(99, 190, 255, .3);
+      --cyan: #54d7ff;
+      --text: #edf7ff;
+      --muted: #9ab0c7;
+    }
+
+    * { box-sizing: border-box; }
+
     html, body, #cesiumContainer {
       width: 100%;
       height: 100%;
       margin: 0;
       overflow: hidden;
-      background: #02040c;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--text);
     }
 
-    #panel {
-      position: absolute;
-      z-index: 5;
-      top: 16px;
-      left: 16px;
-      width: min(320px, calc(100vw - 56px));
-      padding: 16px;
-      color: #f3f6ff;
-      background: rgba(10, 16, 30, 0.84);
-      border: 1px solid rgba(180, 205, 255, 0.2);
-      border-radius: 12px;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+    body { background: #02040b; }
+    #cesiumContainer { position: fixed; inset: 0; }
+
+    .panel {
+      position: fixed;
+      z-index: 10;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 10px 36px rgba(0,0,0,.36);
       backdrop-filter: blur(12px);
     }
 
-    h1 {
-      margin: 0 0 4px;
-      font-size: 17px;
-      letter-spacing: 0.04em;
+    #leftPanel {
+      top: 14px;
+      left: 14px;
+      width: min(390px, calc(100vw - 28px));
+      max-height: calc(100vh - 28px);
+      overflow-y: auto;
+      padding: 14px;
     }
 
-    .subtitle {
-      margin: 0 0 14px;
-      color: #aab7d0;
-      font-size: 12px;
+    #rightPanel {
+      top: 14px;
+      right: 14px;
+      width: 250px;
+      padding: 12px;
     }
 
-    .section-title {
-      margin: 14px 0 7px;
-      color: #aab7d0;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.09em;
-      text-transform: uppercase;
+    #infoCard {
+      display: none;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      width: min(620px, calc(100vw - 28px));
+      padding: 14px;
     }
 
-    .button-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 7px;
-    }
+    h1 { font-size: 16px; margin: 0 0 11px; letter-spacing: .07em; }
+    h2 { font-size: 13px; margin: 14px 0 7px; color: var(--cyan); }
+    .sub { color: var(--muted); font-size: 11px; }
+    .row { display: flex; align-items: center; gap: 7px; margin: 7px 0; }
+    .wrap { flex-wrap: wrap; }
 
-    button {
-      min-height: 34px;
-      padding: 7px 9px;
-      color: #eaf0ff;
+    button, input, select, textarea {
+      color: var(--text);
+      background: rgba(18, 34, 55, .96);
+      border: 1px solid rgba(121, 173, 215, .3);
+      border-radius: 8px;
+      padding: 8px 9px;
       font: inherit;
       font-size: 12px;
-      cursor: pointer;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(190, 210, 255, 0.2);
-      border-radius: 7px;
-      transition: background 120ms ease, border-color 120ms ease;
     }
 
-    button:hover {
-      background: rgba(130, 170, 255, 0.2);
-      border-color: rgba(190, 210, 255, 0.52);
+    button { cursor: pointer; transition: .15s; }
+    button:hover { border-color: var(--cyan); background: #17334e; }
+    button.active { color: #04111c; background: var(--cyan); border-color: var(--cyan); }
+    input, select { min-width: 0; }
+    input:focus { outline: 1px solid var(--cyan); }
+    .grow { flex: 1; }
+    .full { width: 100%; }
+    .small { font-size: 11px; padding: 6px 8px; }
+
+    #searchBox { position: relative; }
+    #searchInput { width: 100%; padding: 11px 12px; border-radius: 22px; }
+    #suggestions {
+      display: none;
+      position: absolute;
+      z-index: 30;
+      top: 43px;
+      left: 0;
+      right: 0;
+      max-height: 260px;
+      overflow: auto;
+      border-radius: 10px;
+      background: #0b1728;
+      border: 1px solid var(--line);
     }
 
-    button.active {
-      color: #fff;
-      background: #2768d8;
-      border-color: #70a5ff;
+    .suggestion { padding: 9px 11px; cursor: pointer; font-size: 12px; }
+    .suggestion:hover { background: #17324b; }
+    .suggestion small { display: block; color: var(--muted); margin-top: 2px; }
+    .divider { height: 1px; background: rgba(130,170,205,.16); margin: 11px 0; }
+    .pin-item { display: flex; align-items: center; gap: 6px; padding: 5px 0; font-size: 11px; }
+    .pin-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+    #status { min-height: 16px; color: var(--muted); font-size: 11px; }
+    #coords { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+    #measureLabel { color: var(--cyan); font-size: 11px; }
+    .badge {
+      color: var(--cyan);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 3px 8px;
+      font-size: 10px;
     }
 
-    #spotButtons {
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 7px;
+      place-items: center;
+      background: #030711;
+      font-size: 14px;
+      letter-spacing: .08em;
     }
+    #loading.hidden { display: none; }
 
-    #spotButtons button {
-      text-align: left;
-    }
-
-    .slider-line {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      margin: 12px 0 5px;
-      color: #d8e1f5;
-      font-size: 12px;
-    }
-
-    input[type="range"] {
-      width: 100%;
-      accent-color: #68a1ff;
-    }
-
-    #status {
-      min-height: 16px;
-      margin-top: 10px;
-      color: #aab7d0;
-      font-size: 11px;
-      line-height: 1.4;
-      overflow-wrap: anywhere;
-    }
-
-    #status.error {
-      color: #ff9b9b;
-    }
-
-    @media (max-width: 480px) {
-      #panel {
-        top: 8px;
-        left: 8px;
-        padding: 12px;
-      }
+    @media (max-width: 700px) {
+      #rightPanel { display: none; }
+      #leftPanel { max-height: 65vh; }
+      #infoCard { bottom: 10px; }
     }
   </style>
 </head>
 
 <body>
   <div id="cesiumContainer"></div>
+  <div id="loading">COSMOS EXPLORER を初期化中…</div>
 
-  <aside id="panel">
-    <h1>惑星エクスプローラー</h1>
-    <p class="subtitle">地球・月・火星を切り替えて探索</p>
+  <section id="leftPanel" class="panel">
+    <h1>✦ COSMOS EXPLORER <span id="bodyBadge" class="badge">EARTH</span></h1>
 
-    <div class="section-title">天体</div>
-    <div class="button-row">
-      <button type="button" data-body="earth" class="active">地球</button>
-      <button type="button" data-body="moon">月</button>
-      <button type="button" data-body="mars">火星</button>
+    <div id="searchBox">
+      <input id="searchInput" type="search" autocomplete="off" placeholder="場所・住所・地名を検索">
+      <div id="suggestions"></div>
     </div>
 
-    <div class="section-title">名所</div>
-    <div id="spotButtons"></div>
-
-    <div class="section-title">太陽光・時間</div>
-    <div class="slider-line">
-      <label for="timeSlider">時刻（UTC）</label>
-      <span id="timeLabel">12:00</span>
+    <h2>天体</h2>
+    <div class="row">
+      <button class="grow body-button active" data-body="earth">地球 Earth</button>
+      <button class="grow body-button" data-body="moon">月 Moon</button>
+      <button class="grow body-button" data-body="mars">火星 Mars</button>
     </div>
-    <input id="timeSlider" type="range" min="0" max="1439" value="720" step="1">
 
-    <div id="status" role="status">初期化しています…</div>
+    <h2>太陽光・時間</h2>
+    <div class="row">
+      <button id="dayNight" class="grow">昼／夜を切替</button>
+      <button id="nowButton" class="small">現在時刻</button>
+    </div>
+    <input id="timeSlider" class="full" type="range" min="-12" max="12" value="0">
+    <div id="timeLabel" class="sub">現在時刻</div>
+
+    <div id="earthLayers">
+      <h2>地球レイヤー</h2>
+      <div class="row wrap">
+        <button class="layer-button small active" data-layer="aerial">航空写真＋建物</button>
+        <button class="layer-button small" data-layer="osm">道路・地名</button>
+        <button class="layer-button small" data-layer="dark">ダーク</button>
+      </div>
+    </div>
+
+    <h2>マイピン</h2>
+    <div class="row">
+      <button id="pinModeButton" class="grow">クリック地点にピンを作成</button>
+    </div>
+    <div id="pinList" class="sub">ピンはありません</div>
+
+    <h2>ルート検索・3D飛行</h2>
+    <div class="row"><input id="routeFrom" class="grow" placeholder="出発地"></div>
+    <div class="row"><input id="routeTo" class="grow" placeholder="目的地"></div>
+    <div class="row">
+      <select id="travelMode" class="grow">
+        <option value="walk">徒歩（5 km/h）</option>
+        <option value="car">車（60 km/h）</option>
+        <option value="plane">飛行機（800 km/h）</option>
+        <option value="rocket">ロケット（25,000 km/h）</option>
+      </select>
+      <button id="routeButton">ルート</button>
+    </div>
+    <div id="routeInfo" class="sub"></div>
+    <div class="row">
+      <button id="flyRoute" class="grow">ルートを3D飛行で案内</button>
+      <button id="pauseRoute" class="small">一時停止</button>
+      <button id="stopRoute" class="small">停止</button>
+    </div>
+
+    <h2>ものさし</h2>
+    <div class="row">
+      <button id="measureButton" class="grow">計測開始</button>
+      <button id="clearMeasure" class="small">クリア</button>
+    </div>
+    <div id="measureLabel">地図をクリックして点を追加</div>
+
+    <div class="divider"></div>
+    <div class="row">
+      <button id="streetButton" class="grow">ストリートビュー（地上に降りる）</button>
+      <button id="returnButton" class="small" style="display:none">上空に戻る</button>
+    </div>
+    <div class="sub">地上モード：WASD／矢印キーで移動、ドラッグで見回す</div>
+    <div id="status"></div>
+  </section>
+
+  <aside id="rightPanel" class="panel">
+    <h2 style="margin-top:2px">操作</h2>
+    <div class="sub">
+      左ドラッグ：回転<br>
+      右ドラッグ：移動<br>
+      ホイール：ズーム<br>
+      地図クリック：地点情報
+    </div>
+    <div class="divider"></div>
+    <div class="sub">
+      地球：地形・3D都市建物<br>
+      月：Cesium ion 3D Tiles<br>
+      火星：Cesium ion 3D Tiles
+    </div>
   </aside>
 
-  <script>
-    (async function () {
-      "use strict";
+  <section id="infoCard" class="panel">
+    <div class="row">
+      <strong id="placeTitle" class="grow">地点情報</strong>
+      <button id="closeCard" class="small">閉じる</button>
+    </div>
+    <div id="placeAddress" class="sub"></div>
+    <div id="coords"></div>
+    <div class="row wrap">
+      <button id="cardStreet" class="small">地上に降りる</button>
+      <button id="cardPin" class="small">この地点にピン</button>
+      <button id="setRouteFrom" class="small">出発地に設定</button>
+      <button id="setRouteTo" class="small">目的地に設定</button>
+    </div>
+  </section>
 
-      // GitHub Actions の deploy.yml が公開時にこの値を置換します。
-      // config.yaml は使用しません。
-      const TOKEN_PLACEHOLDER = "__accesstoken__";
+<script>
+"use strict";
 
-      const MOON_TERRAIN_ASSET_ID = 2684829;
-      const MARS_TERRAIN_ASSET_ID = 3644333;
-      const WORLD_IMAGERY_ASSET_ID = 2;
+let token = "__accesstoken__";
 
-      const statusEl = document.getElementById("status");
-      const timeSlider = document.getElementById("timeSlider");
-      const timeLabel = document.getElementById("timeLabel");
-      const spotButtons = document.getElementById("spotButtons");
+const MOON_ASSET_ID = 2684829;
+const MARS_ASSET_ID = 3644333;
 
-      let activeBody = "earth";
-      let switchSequence = 0;
-      let moonTileset = null;
-      let marsTileset = null;
-      let osmBuildings = null;
+const $ = id => document.getElementById(id);
+const state = {
+  body: "earth",
+  selected: null,
+  searchTimer: null,
+  searchResults: [],
+  pinMode: false,
+  measureMode: false,
+  measurePoints: [],
+  measureEntities: [],
+  routeEntities: [],
+  routePoints: [],
+  routeTimer: null,
+  routePaused: false,
+  routeProgress: 0,
+  street: null,
+  savedCamera: null,
+  imageryLayer: null,
+  buildings: null,
+  planetTileset: null,
+  pins: [],
+  pinEntities: [],
+  markers: [],
+  currentOffsetHours: 0
+};
 
-      function setStatus(message, isError) {
-        statusEl.textContent = message;
-        statusEl.classList.toggle("error", Boolean(isError));
+const planetPlaces = [
+  {body:"moon",name:"ティコ・クレーター",en:"Tycho Crater",lon:-11.36,lat:-43.31},
+  {body:"moon",name:"コペルニクス・クレーター",en:"Copernicus Crater",lon:-20.08,lat:9.62},
+  {body:"moon",name:"ケプラー・クレーター",en:"Kepler Crater",lon:-38,lat:8.1},
+  {body:"moon",name:"プラトン・クレーター",en:"Plato Crater",lon:-9.3,lat:51.6},
+  {body:"moon",name:"クラビウス・クレーター",en:"Clavius Crater",lon:-14.4,lat:-58.4},
+  {body:"moon",name:"アリスタルコス・クレーター",en:"Aristarchus Crater",lon:-47.4,lat:23.7},
+  {body:"moon",name:"静かの海",en:"Mare Tranquillitatis",lon:23.4,lat:8.5},
+  {body:"moon",name:"嵐の大洋",en:"Oceanus Procellarum",lon:-45,lat:18},
+  {body:"moon",name:"雨の海",en:"Mare Imbrium",lon:-15,lat:32},
+  {body:"moon",name:"危難の海",en:"Mare Crisium",lon:59,lat:17},
+  {body:"moon",name:"南極エイトケン盆地",en:"South Pole-Aitken Basin",lon:180,lat:-53},
+  {body:"moon",name:"アポロ11号着陸地点",en:"Apollo 11 landing site",lon:23.47,lat:.67},
+  {body:"moon",name:"アポロ12号着陸地点",en:"Apollo 12 landing site",lon:-23.42,lat:-3.01},
+  {body:"moon",name:"アポロ14号着陸地点",en:"Apollo 14 landing site",lon:-17.48,lat:-3.65},
+  {body:"moon",name:"アポロ15号着陸地点",en:"Apollo 15 landing site",lon:3.63,lat:26.13},
+  {body:"moon",name:"アポロ16号着陸地点",en:"Apollo 16 landing site",lon:15.5,lat:-8.97},
+  {body:"moon",name:"アポロ17号着陸地点",en:"Apollo 17 landing site",lon:30.77,lat:20.19},
+
+  {body:"mars",name:"オリンポス山",en:"Olympus Mons",lon:-133.8,lat:18.65},
+  {body:"mars",name:"タルシス三山",en:"Tharsis Montes",lon:-112,lat:2},
+  {body:"mars",name:"アスクレウス山",en:"Ascraeus Mons",lon:-104.4,lat:11.9},
+  {body:"mars",name:"パボニス山",en:"Pavonis Mons",lon:-112.8,lat:.8},
+  {body:"mars",name:"アルシア山",en:"Arsia Mons",lon:-120.1,lat:-8.4},
+  {body:"mars",name:"マリネリス峡谷",en:"Valles Marineris",lon:-70,lat:-13},
+  {body:"mars",name:"ゲール・クレーター",en:"Gale Crater / Curiosity",lon:137.4,lat:-5.4},
+  {body:"mars",name:"ジェゼロ・クレーター",en:"Jezero Crater / Perseverance",lon:77.6,lat:18.4},
+  {body:"mars",name:"エリシウム平原",en:"Elysium Planitia / InSight",lon:135.9,lat:4.5},
+  {body:"mars",name:"ユートピア平原",en:"Utopia Planitia",lon:118,lat:47},
+  {body:"mars",name:"ヘラス盆地",en:"Hellas Planitia",lon:70,lat:-42},
+  {body:"mars",name:"アラビア大陸",en:"Arabia Terra",lon:20,lat:10},
+  {body:"mars",name:"スキアパレッリ・クレーター",en:"Schiaparelli Crater",lon:16.7,lat:-3.1},
+  {body:"mars",name:"バイキング1号着陸地点",en:"Viking 1 landing site",lon:-49.97,lat:22.48},
+  {body:"mars",name:"バイキング2号着陸地点",en:"Viking 2 landing site",lon:134.3,lat:47.97},
+  {body:"mars",name:"パスファインダー着陸地点",en:"Pathfinder landing site",lon:326.75,lat:19.13},
+  {body:"mars",name:"スピリット着陸地点",en:"Spirit landing site",lon:175.5,lat:-14.6},
+  {body:"mars",name:"オポチュニティ着陸地点",en:"Opportunity landing site",lon:354.47,lat:-1.95},
+  {body:"mars",name:"キュリオシティ着陸地点",en:"Curiosity landing site",lon:137.4,lat:-4.6},
+  {body:"mars",name:"パーサヴィアランス着陸地点",en:"Perseverance landing site",lon:77.45,lat:18.44}
+];
+
+let viewer;
+
+function status(text) { $("status").textContent = text || ""; }
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+  })[c]);
+}
+function ellipsoidFor(body = state.body) {
+  if (body === "moon") return new Cesium.Ellipsoid(1737400, 1737400, 1737400);
+  if (body === "mars") return Cesium.Ellipsoid.MARS;
+  return Cesium.Ellipsoid.WGS84;
+}
+function radiusFor(body = state.body) {
+  return body === "moon" ? 1737400 : body === "mars" ? 3396190 : 6378137;
+}
+function fromDegrees(lon, lat, height = 0, body = state.body) {
+  return Cesium.Cartesian3.fromDegrees(lon, lat, height, ellipsoidFor(body));
+}
+function cameraFly(lon, lat, height = 1000000, duration = 2) {
+  viewer.camera.flyTo({
+    destination: fromDegrees(lon, lat, height),
+    duration,
+    orientation: {heading: 0, pitch: Cesium.Math.toRadians(-55), roll: 0}
+  });
+}
+function toLonLat(position) {
+  const c = ellipsoidFor().cartesianToCartographic(position);
+  if (!c) return null;
+  return {
+    lon: Cesium.Math.toDegrees(c.longitude),
+    lat: Cesium.Math.toDegrees(c.latitude),
+    height: c.height || 0,
+    cartographic: c
+  };
+}
+function pickPosition(pixel) {
+  let position = null;
+  if (viewer.scene.pickPositionSupported) {
+    try { position = viewer.scene.pickPosition(pixel); } catch (_) {}
+  }
+  if (!position) {
+    const ray = viewer.camera.getPickRay(pixel);
+    if (ray) position = viewer.scene.globe.pick(ray, viewer.scene);
+  }
+  if (!position) position = viewer.camera.pickEllipsoid(pixel, ellipsoidFor());
+  return position;
+}
+
+async function reverseGeocode(lon, lat) {
+  if (state.body !== "earth") {
+    return state.body === "moon" ? "月面" : "火星面";
+  }
+  try {
+    const url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2" +
+      "&accept-language=ja&lat=" + encodeURIComponent(lat) +
+      "&lon=" + encodeURIComponent(lon);
+    const response = await fetch(url, {headers: {Accept: "application/json"}});
+    if (!response.ok) throw new Error("Reverse geocoding failed");
+    const data = await response.json();
+    return data.display_name || "住所情報なし";
+  } catch (_) {
+    return "住所を取得できませんでした";
+  }
+}
+
+function addTemporaryMarker(position, title) {
+  const entity = viewer.entities.add({
+    position,
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.CYAN,
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: 2
+    },
+    label: {
+      text: title,
+      font: "12px sans-serif",
+      pixelOffset: new Cesium.Cartesian2(0, -18),
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      disableDepthTestDistance: 1e7
+    }
+  });
+  state.markers.push(entity);
+}
+
+function clearTemporaryMarkers() {
+  state.markers.forEach(entity => viewer.entities.remove(entity));
+  state.markers = [];
+}
+
+async function showPlace(position, title = "クリック地点") {
+  const p = toLonLat(position);
+  if (!p) return;
+
+  state.selected = {position, ...p, title};
+  $("infoCard").style.display = "block";
+  $("placeTitle").textContent = title;
+  $("placeAddress").textContent = "住所を検索中…";
+  $("coords").textContent =
+    `緯度 ${p.lat.toFixed(6)}° ／ 経度 ${p.lon.toFixed(6)}° ／ 標高 ${p.height.toFixed(1)} m`;
+
+  addTemporaryMarker(position, title);
+  $("placeAddress").textContent = await reverseGeocode(p.lon, p.lat);
+
+  let height = p.height;
+  if (state.body === "earth") {
+    const terrainHeight = viewer.scene.globe.getHeight(p.cartographic);
+    if (Number.isFinite(terrainHeight)) height = terrainHeight;
+  }
+  $("coords").textContent =
+    `緯度 ${p.lat.toFixed(6)}° ／ 経度 ${p.lon.toFixed(6)}° ／ 標高 ${height.toFixed(1)} m`;
+}
+
+function makePinEntity(pin) {
+  return viewer.entities.add({
+    position: fromDegrees(pin.lon, pin.lat, pin.height),
+    point: {
+      pixelSize: 14,
+      color: Cesium.Color.fromCssColorString(pin.color),
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: 2
+    },
+    label: {
+      text: pin.name,
+      font: "12px sans-serif",
+      pixelOffset: new Cesium.Cartesian2(0, -18),
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      disableDepthTestDistance: 1e7
+    }
+  });
+}
+
+function savePins() {
+  try {
+    localStorage.setItem(`cosmos-pins-${state.body}`, JSON.stringify(state.pins));
+  } catch (error) {
+    console.warn("ピンを保存できません", error);
+  }
+}
+
+function renderPins() {
+  const list = $("pinList");
+  list.replaceChildren();
+
+  if (!state.pins.length) {
+    list.textContent = "ピンはありません";
+    return;
+  }
+
+  state.pins.forEach((pin, index) => {
+    const row = document.createElement("div");
+    row.className = "pin-item";
+
+    const dot = document.createElement("span");
+    dot.className = "pin-dot";
+    dot.style.background = pin.color;
+
+    const jump = document.createElement("button");
+    jump.className = "small grow";
+    jump.textContent = pin.name;
+    jump.title = pin.note || "";
+    jump.onclick = () => cameraFly(pin.lon, pin.lat, Math.max(pin.height + 30000, 5000), 2);
+
+    const remove = document.createElement("button");
+    remove.className = "small";
+    remove.textContent = "削除";
+    remove.onclick = () => {
+      state.pins.splice(index, 1);
+      const entity = state.pinEntities.splice(index, 1)[0];
+      if (entity) viewer.entities.remove(entity);
+      savePins();
+      renderPins();
+    };
+
+    row.append(dot, jump, remove);
+    list.appendChild(row);
+  });
+}
+
+function loadPins() {
+  try {
+    state.pins = JSON.parse(localStorage.getItem(`cosmos-pins-${state.body}`) || "[]");
+  } catch (_) {
+    state.pins = [];
+  }
+  state.pinEntities = state.pins.map(makePinEntity);
+  renderPins();
+}
+
+function createPin() {
+  if (!state.selected) {
+    alert("先に地図上の地点をクリックしてください。");
+    return;
+  }
+
+  const name = prompt("ピン名", state.selected.title || "マイピン");
+  if (!name) return;
+
+  const note = prompt("メモ（任意）", "") || "";
+  const color = prompt("ピンの色（red / blue / green / yellow / purple など）", "red") || "red";
+  const namedColors = {
+    red: "#ff4d5e",
+    blue: "#3a9cff",
+    green: "#39d98a",
+    yellow: "#ffd34d",
+    purple: "#b57aff"
+  };
+  const normalizedColor = namedColors[color.toLowerCase()] || color;
+
+  const pin = {
+    name,
+    note,
+    color: normalizedColor,
+    lon: state.selected.lon,
+    lat: state.selected.lat,
+    height: state.selected.height || 0
+  };
+
+  state.pins.push(pin);
+  state.pinEntities.push(makePinEntity(pin));
+  savePins();
+  renderPins();
+}
+
+function planetaryMatches(query) {
+  const q = query.trim().toLocaleLowerCase();
+  if (!q) return [];
+  return planetPlaces
+    .filter(place => place.body === state.body &&
+      `${place.name} ${place.en}`.toLocaleLowerCase().includes(q))
+    .slice(0, 10)
+    .map(place => ({
+      title: place.name,
+      detail: place.en,
+      lon: place.lon,
+      lat: place.lat
+    }));
+}
+
+async function nominatimSearch(query) {
+  const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6" +
+    "&accept-language=ja&q=" + encodeURIComponent(query);
+  const response = await fetch(url, {headers: {Accept: "application/json"}});
+  if (!response.ok) throw new Error("Nominatim search failed");
+  const data = await response.json();
+
+  return data.map(item => ({
+    title: item.name || item.display_name.split(",")[0],
+    detail: item.display_name,
+    lon: Number(item.lon),
+    lat: Number(item.lat)
+  }));
+}
+
+function showSuggestions(results) {
+  const box = $("suggestions");
+  state.searchResults = results;
+
+  if (!results.length) {
+    box.style.display = "none";
+    box.replaceChildren();
+    return;
+  }
+
+  box.innerHTML = results.map((result, index) =>
+    `<div class="suggestion" data-index="${index}">` +
+      `${escapeHtml(result.title)}<small>${escapeHtml(result.detail || "")}</small>` +
+    `</div>`
+  ).join("");
+
+  box.style.display = "block";
+  box.querySelectorAll(".suggestion").forEach(element => {
+    element.onclick = () => chooseSearchResult(Number(element.dataset.index));
+  });
+}
+
+async function updateSuggestions() {
+  const query = $("searchInput").value.trim();
+  if (query.length < 2) return showSuggestions([]);
+
+  if (state.body !== "earth") {
+    showSuggestions(planetaryMatches(query));
+    return;
+  }
+
+  try {
+    showSuggestions(await nominatimSearch(query));
+  } catch (_) {
+    showSuggestions([]);
+  }
+}
+
+async function chooseSearchResult(index) {
+  const result = state.searchResults[index];
+  if (!result) return;
+
+  $("searchInput").value = result.title;
+  $("suggestions").style.display = "none";
+  cameraFly(result.lon, result.lat, state.body === "earth" ? 12000 : 50000, 3);
+  await showPlace(fromDegrees(result.lon, result.lat, 0), result.title);
+}
+
+async function searchSubmit() {
+  const query = $("searchInput").value.trim();
+  if (!query) return;
+
+  if (state.body !== "earth") {
+    const matches = planetaryMatches(query);
+    if (matches.length) {
+      state.searchResults = matches;
+      chooseSearchResult(0);
+    } else {
+      status("該当する地名が見つかりません。");
+    }
+    return;
+  }
+
+  status("検索中…");
+  try {
+    const results = await nominatimSearch(query);
+    if (!results.length) {
+      status("検索結果がありません。");
+      return;
+    }
+    state.searchResults = results;
+    await chooseSearchResult(0);
+    status("");
+  } catch (_) {
+    status("検索に失敗しました。時間をおいて再試行してください。");
+  }
+}
+
+function clearRoute() {
+  state.routeEntities.forEach(entity => viewer.entities.remove(entity));
+  state.routeEntities = [];
+  state.routePoints = [];
+  $("routeInfo").textContent = "";
+}
+
+async function resolvePlace(query) {
+  const coordinateMatch = query.match(
+    /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/
+  );
+  if (coordinateMatch) {
+    return {lat: Number(coordinateMatch[1]), lon: Number(coordinateMatch[2])};
+  }
+
+  if (state.body !== "earth") {
+    const match = planetaryMatches(query)[0];
+    if (match) return match;
+    throw new Error(`場所が見つかりません: ${query}`);
+  }
+
+  const results = await nominatimSearch(query);
+  if (!results.length) throw new Error(`場所が見つかりません: ${query}`);
+  return results[0];
+}
+
+function buildGeodesic(a, b, count = 90) {
+  const ellipsoid = ellipsoidFor();
+  const start = Cesium.Cartographic.fromDegrees(a.lon, a.lat, 0, ellipsoid);
+  const end = Cesium.Cartographic.fromDegrees(b.lon, b.lat, 0, ellipsoid);
+  const geodesic = new Cesium.EllipsoidGeodesic(start, end, ellipsoid);
+  const positions = [];
+
+  for (let i = 0; i <= count; i++) {
+    const point = geodesic.interpolateUsingFraction(i / count);
+    positions.push(Cesium.Cartesian3.fromRadians(
+      point.longitude,
+      point.latitude,
+      Math.max(1000, radiusFor() * .002),
+      ellipsoid
+    ));
+  }
+
+  return {positions, distance: geodesic.surfaceDistance};
+}
+
+async function buildRoute() {
+  const fromText = $("routeFrom").value.trim();
+  const toText = $("routeTo").value.trim();
+  if (!fromText || !toText) {
+    status("出発地と目的地を入力してください。");
+    return;
+  }
+
+  clearRoute();
+  status("ルートを検索中…");
+
+  try {
+    const [start, end] = await Promise.all([
+      resolvePlace(fromText),
+      resolvePlace(toText)
+    ]);
+    const result = buildGeodesic(start, end);
+    state.routePoints = result.positions;
+
+    const routeEntity = viewer.entities.add({
+      polyline: {
+        positions: result.positions,
+        width: 5,
+        material: new Cesium.PolylineGlowMaterialProperty({
+          glowPower: .25,
+          color: Cesium.Color.CYAN
+        }),
+        clampToGround: false
       }
+    });
+    state.routeEntities.push(routeEntity);
 
-      function isLocalDevelopment() {
-        return (
-          location.hostname === "localhost" ||
-          location.hostname === "127.0.0.1"
-        );
+    const km = result.distance / 1000;
+    const speeds = {walk: 5, car: 60, plane: 800, rocket: 25000};
+    const hours = km / speeds[$("travelMode").value];
+    const time = hours < 1
+      ? `${Math.round(hours * 60)} 分`
+      : `${hours.toFixed(1)} 時間`;
+
+    $("routeInfo").textContent =
+      `距離 ${km.toFixed(2)} km ／ 所要時間の目安 ${time}（球面距離）`;
+
+    viewer.camera.flyToBoundingSphere(
+      Cesium.BoundingSphere.fromPoints(result.positions),
+      {
+        duration: 2,
+        offset: new Cesium.HeadingPitchRange(
+          0,
+          Cesium.Math.toRadians(-45),
+          Math.max(result.distance * .8, 50000)
+        )
       }
+    );
+    status("");
+  } catch (error) {
+    status(error.message || "ルート検索に失敗しました。");
+  }
+}
 
-      async function loadAccessToken() {
-        let token = TOKEN_PLACEHOLDER;
+function stopRoute(showMessage = true) {
+  if (state.routeTimer) clearInterval(state.routeTimer);
+  state.routeTimer = null;
+  state.routePaused = false;
+  if (showMessage) status("ルート案内を停止しました。");
+}
 
-        // .env はローカル開発時だけ読み込みます。
-        // GitHub Pages では .env や config.yaml をリクエストしません。
-        if (isLocalDevelopment()) {
-          try {
-            const response = await fetch("./.env", { cache: "no-store" });
+function startRouteFlight() {
+  if (state.routePoints.length < 2) {
+    status("先にルートを作成してください。");
+    return;
+  }
 
-            if (response.ok) {
-              const text = await response.text();
-              const match = text.match(
-                /^\s*accesstoken\s*=\s*(?:"([^"]*)"|'([^']*)'|([^#\r\n]*))/m
-              );
+  stopRoute(false);
+  state.routeProgress = 0;
+  state.routePaused = false;
 
-              if (match) {
-                const localToken = (match[1] || match[2] || match[3] || "").trim();
-                if (localToken) {
-                  token = localToken;
-                }
-              }
-            }
-          } catch (error) {
-            console.warn(".env を読み込めませんでした。", error);
-          }
-        }
+  state.routeTimer = setInterval(() => {
+    if (state.routePaused) return;
 
-        if (!token || token === TOKEN_PLACEHOLDER) {
-          throw new Error(
-            "アクセストークンが設定されていません。GitHub Actions の ACCESSTOKEN Secret と deploy.yml の置換設定を確認してください。"
-          );
-        }
+    const index = Math.min(state.routePoints.length - 1, state.routeProgress++);
+    const current = state.routePoints[index];
+    const next = state.routePoints[Math.min(index + 2, state.routePoints.length - 1)];
+    const outward = Cesium.Cartesian3.normalize(current, new Cesium.Cartesian3());
+    const destination = Cesium.Cartesian3.add(
+      current,
+      Cesium.Cartesian3.multiplyByScalar(outward, radiusFor() * .035, new Cesium.Cartesian3()),
+      new Cesium.Cartesian3()
+    );
+    const direction = Cesium.Cartesian3.normalize(
+      Cesium.Cartesian3.subtract(next, current, new Cesium.Cartesian3()),
+      new Cesium.Cartesian3()
+    );
+    const up = Cesium.Cartesian3.normalize(current, new Cesium.Cartesian3());
 
-        return token;
+    viewer.camera.setView({
+      destination,
+      orientation: {direction, up}
+    });
+
+    if (index >= state.routePoints.length - 1) stopRoute(false);
+  }, 90);
+}
+
+function clearMeasure() {
+  state.measureEntities.forEach(entity => viewer.entities.remove(entity));
+  state.measureEntities = [];
+  state.measurePoints = [];
+  $("measureLabel").textContent = "地図をクリックして点を追加";
+}
+
+function addMeasurePoint(position) {
+  state.measurePoints.push(position);
+  state.measureEntities.push(viewer.entities.add({
+    position,
+    point: {pixelSize: 8, color: Cesium.Color.YELLOW, outlineColor: Cesium.Color.BLACK, outlineWidth: 1}
+  }));
+
+  if (state.measurePoints.length > 1) {
+    state.measureEntities.push(viewer.entities.add({
+      polyline: {
+        positions: state.measurePoints.slice(),
+        width: 3,
+        material: Cesium.Color.YELLOW,
+        clampToGround: false
       }
+    }));
+  }
 
-      let accessToken;
+  let distance = 0;
+  for (let i = 1; i < state.measurePoints.length; i++) {
+    distance += Cesium.Cartesian3.distance(state.measurePoints[i - 1], state.measurePoints[i]);
+  }
+
+  $("measureLabel").textContent = distance < 1000
+    ? `合計距離 ${distance.toFixed(1)} m`
+    : `合計距離 ${(distance / 1000).toFixed(3)} km`;
+}
+
+function saveCamera() {
+  const camera = viewer.camera;
+  state.savedCamera = {
+    position: Cesium.Cartesian3.clone(camera.position),
+    heading: camera.heading,
+    pitch: camera.pitch,
+    roll: camera.roll
+  };
+}
+
+function enterStreet() {
+  if (!state.selected) {
+    alert("地図上の地点をクリックして選択してください。");
+    return;
+  }
+  if (state.street) return;
+
+  saveCamera();
+  const eyeHeight = state.body === "earth" ? 1.7 : 3;
+  viewer.camera.setView({
+    destination: fromDegrees(state.selected.lon, state.selected.lat, eyeHeight),
+    orientation: {heading: viewer.camera.heading, pitch: 0, roll: 0}
+  });
+
+  state.street = {
+    lon: state.selected.lon,
+    lat: state.selected.lat,
+    height: eyeHeight
+  };
+  $("returnButton").style.display = "inline-block";
+  $("streetButton").textContent = "地上モード中";
+  status("地上モード：WASDまたは矢印キーで移動。");
+}
+
+function leaveStreet() {
+  if (!state.street) return;
+  state.street = null;
+  $("returnButton").style.display = "none";
+  $("streetButton").textContent = "ストリートビュー（地上に降りる）";
+
+  if (state.savedCamera) {
+    viewer.camera.flyTo({
+      destination: state.savedCamera.position,
+      duration: 1.5,
+      orientation: {
+        heading: state.savedCamera.heading,
+        pitch: state.savedCamera.pitch,
+        roll: state.savedCamera.roll
+      }
+    });
+  }
+  status("");
+}
+
+function walk(direction) {
+  if (!state.street) return;
+
+  const distance = state.body === "earth" ? 8 : 20;
+  const camera = viewer.camera;
+  if (direction === "forward") camera.moveForward(distance);
+  if (direction === "back") camera.moveBackward(distance);
+  if (direction === "left") camera.moveLeft(distance);
+  if (direction === "right") camera.moveRight(distance);
+
+  const cartographic = ellipsoidFor().cartesianToCartographic(camera.position);
+  if (cartographic) {
+    camera.position = Cesium.Cartesian3.fromRadians(
+      cartographic.longitude,
+      cartographic.latitude,
+      state.street.height,
+      ellipsoidFor()
+    );
+  }
+}
+
+async function setEarthLayer(type) {
+  if (state.body !== "earth") return;
+
+  if (state.imageryLayer) {
+    viewer.imageryLayers.remove(state.imageryLayer, true);
+    state.imageryLayer = null;
+  }
+
+  try {
+    if (type === "aerial") {
+      const provider = await Cesium.IonImageryProvider.fromAssetId(2);
+      state.imageryLayer = viewer.imageryLayers.addImageryProvider(provider);
+    } else if (type === "osm") {
+      state.imageryLayer = viewer.imageryLayers.addImageryProvider(
+        new Cesium.OpenStreetMapImageryProvider({
+          url: "https://tile.openstreetmap.org/"
+        })
+      );
+    } else {
+      state.imageryLayer = viewer.imageryLayers.addImageryProvider(
+        new Cesium.UrlTemplateImageryProvider({
+          url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+          subdomains: ["a", "b", "c", "d"],
+          credit: "© OpenStreetMap contributors © CARTO"
+        })
+      );
+    }
+  } catch (error) {
+    console.warn("地図レイヤーを読み込めません", error);
+    status("選択した地図レイヤーを読み込めませんでした。");
+  }
+
+  document.querySelectorAll(".layer-button").forEach(button => {
+    button.classList.toggle("active", button.dataset.layer === type);
+  });
+}
+
+function removeBuildings() {
+  if (state.buildings) {
+    viewer.scene.primitives.remove(state.buildings);
+    state.buildings = null;
+  }
+}
+
+async function switchBody(body) {
+  if (body === state.body) return;
+
+  stopRoute(false);
+  clearRoute();
+  clearMeasure();
+  clearTemporaryMarkers();
+  leaveStreet();
+  removeBuildings();
+
+  if (state.imageryLayer) {
+    viewer.imageryLayers.remove(state.imageryLayer, true);
+    state.imageryLayer = null;
+  }
+  if (state.planetTileset) {
+    viewer.scene.primitives.remove(state.planetTileset);
+    state.planetTileset = null;
+  }
+
+  viewer.entities.removeAll();
+  state.pinEntities = [];
+  state.selected = null;
+  state.body = body;
+
+  $("bodyBadge").textContent = body.toUpperCase();
+  document.querySelectorAll(".body-button").forEach(button => {
+    button.classList.toggle("active", button.dataset.body === body);
+  });
+  $("earthLayers").style.display = body === "earth" ? "block" : "none";
+  $("infoCard").style.display = "none";
+  $("searchInput").value = "";
+  $("suggestions").style.display = "none";
+  $("routeInfo").textContent = "";
+
+  try {
+    if (body === "earth") {
+      viewer.scene.globe.show = true;
+      viewer.scene.globe.enableLighting = true;
+      viewer.scene.globe.atmosphere.show = true;
+      viewer.scene.skyAtmosphere.show = true;
+      viewer.terrainProvider = await Cesium.Terrain.fromWorldTerrain();
+      await setEarthLayer("aerial");
 
       try {
-        accessToken = await loadAccessToken();
+        state.buildings = await Cesium.createOsmBuildingsAsync();
+        viewer.scene.primitives.add(state.buildings);
       } catch (error) {
-        console.error(error);
-        setStatus(error.message, true);
-        return;
+        console.warn("3D建物を読み込めません", error);
       }
 
-      Cesium.Ion.defaultAccessToken = accessToken;
-
-      const viewer = new Cesium.Viewer("cesiumContainer", {
-        animation: false,
-        baseLayerPicker: false,
-        fullscreenButton: false,
-        geocoder: false,
-        homeButton: false,
-        infoBox: false,
-        navigationHelpButton: false,
-        sceneModePicker: false,
-        selectionIndicator: false,
-        timeline: false,
-        vrButton: false,
-        shouldAnimate: false,
-        requestRenderMode: false,
-        baseLayer: false,
-        terrainProvider: new Cesium.EllipsoidTerrainProvider()
-      });
-
-      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#02040c");
+      cameraFly(0, 15, 20000000, 2);
+    } else {
+      // Moon/Marsは指定ion 3D Tilesを利用し、Cesiumの標準地球は隠す
+      viewer.scene.globe.show = false;
+      viewer.scene.skyAtmosphere.show = false;
       viewer.scene.globe.enableLighting = true;
-      viewer.scene.globe.showGroundAtmosphere = true;
-      viewer.scene.skyAtmosphere.show = true;
-      viewer.scene.fog.enabled = true;
-      viewer.scene.light = new Cesium.SunLight();
 
-      const spots = {
-        earth: [
-          { label: "宇宙全体", lon: 0, lat: 0, height: 22000000 },
-          { label: "富士山", lon: 138.7274, lat: 35.3606, height: 18000 },
-          { label: "東京スカイツリー", lon: 139.8107, lat: 35.7101, height: 3500 },
-          { label: "グランドキャニオン", lon: -112.1129, lat: 36.1069, height: 22000 }
-        ],
-        moon: [
-          { label: "ティコ", lon: -11.2, lat: -43.3, height: 90000 },
-          { label: "静かの海", lon: 31.4, lat: 8.5, height: 100000 },
-          { label: "コペルニクス", lon: -20.1, lat: 9.7, height: 80000 }
-        ],
-        mars: [
-          { label: "オリンポス山", lon: -133.8, lat: 18.65, height: 150000 },
-          { label: "マリネリス峡谷", lon: -59.2, lat: -13.9, height: 180000 },
-          { label: "ゲール・クレーター", lon: 137.8, lat: -5.4, height: 45000 }
-        ]
-      };
+      const assetId = body === "moon" ? MOON_ASSET_ID : MARS_ASSET_ID;
+      state.planetTileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
+      viewer.scene.primitives.add(state.planetTileset);
+      await viewer.zoomTo(state.planetTileset);
+    }
+  } catch (error) {
+    console.error(`${body} の初期化に失敗しました`, error);
+    status(
+      `${body === "moon" ? "月" : body === "mars" ? "火星" : "地球"}を読み込めません。` +
+      "アセットID、ionでの公開設定、トークン権限を確認してください。"
+    );
 
-      function updateSpotButtons() {
-        spotButtons.replaceChildren();
+    if (body === "earth") {
+      viewer.scene.globe.show = true;
+      cameraFly(0, 15, 20000000, 2);
+    }
+  }
 
-        for (const spot of spots[activeBody]) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = spot.label;
+  loadPins();
+}
 
-          button.addEventListener("click", function () {
-            viewer.camera.flyTo({
-              destination: Cesium.Cartesian3.fromDegrees(
-                spot.lon,
-                spot.lat,
-                spot.height
-              ),
-              duration: 2.4
-            });
-          });
+function updateTime(hours) {
+  state.currentOffsetHours = Number(hours);
+  const date = new Date(Date.now() + state.currentOffsetHours * 3600000);
+  viewer.clock.currentTime = Cesium.JulianDate.fromDate(date);
+  $("timeLabel").textContent =
+    `${state.currentOffsetHours >= 0 ? "+" : ""}${state.currentOffsetHours} 時間 ／ ` +
+    date.toLocaleString("ja-JP");
+}
 
-          spotButtons.appendChild(button);
-        }
-      }
+async function init() {
+  // Actionsが未実行のローカル表示では空トークンとして扱う
+  if (token === "__" + "accesstoken" + "__") token = "";
+  if (token) Cesium.Ion.defaultAccessToken = token;
 
-      function clearOptionalTilesets() {
-        if (moonTileset) {
-          viewer.scene.primitives.remove(moonTileset);
-          moonTileset = null;
-        }
+  viewer = new Cesium.Viewer("cesiumContainer", {
+    animation: false,
+    timeline: false,
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    sceneModePicker: false,
+    navigationHelpButton: false,
+    fullscreenButton: true,
+    infoBox: false,
+    selectionIndicator: false,
+    terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+    baseLayer: false,
+    shouldAnimate: true
+  });
 
-        if (marsTileset) {
-          viewer.scene.primitives.remove(marsTileset);
-          marsTileset = null;
-        }
-      }
+  viewer.clock.shouldAnimate = true;
+  viewer.scene.globe.enableLighting = true;
+  viewer.scene.globe.atmosphere.show = true;
+  viewer.scene.skyAtmosphere.show = true;
+  viewer.scene.globe.depthTestAgainstTerrain = true;
 
-      function clearEarthBuildings() {
-        if (osmBuildings) {
-          viewer.scene.primitives.remove(osmBuildings);
-          osmBuildings = null;
-        }
-      }
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromDegrees(0, 15, 20000000),
+    orientation: {heading: 0, pitch: Cesium.Math.toRadians(-55), roll: 0}
+  });
 
-      function clearImageryLayers() {
-        viewer.imageryLayers.removeAll(true);
-      }
+  const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+  handler.setInputAction(async movement => {
+    const position = pickPosition(movement.position);
+    if (!position) return;
 
-      function setEarthAtmosphere() {
-        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#02040c");
-        viewer.scene.skyAtmosphere.show = true;
-        viewer.scene.skyAtmosphere.hueShift = 0;
-        viewer.scene.skyAtmosphere.saturationShift = 0;
-        viewer.scene.skyAtmosphere.brightnessShift = 0;
-        viewer.scene.globe.showGroundAtmosphere = true;
-        viewer.scene.fog.enabled = true;
-        viewer.scene.fog.color = Cesium.Color.fromCssColorString("#b7d8ff");
-        viewer.scene.fog.density = 0.0002;
-      }
+    if (state.measureMode) {
+      addMeasurePoint(position);
+      return;
+    }
 
-      function setMoonAtmosphere() {
-        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#02040c");
-        viewer.scene.skyAtmosphere.show = false;
-        viewer.scene.globe.showGroundAtmosphere = false;
-        viewer.scene.fog.enabled = false;
-      }
+    if (state.pinMode) {
+      state.pinMode = false;
+      $("pinModeButton").classList.remove("active");
+      await showPlace(position, "新しいピン");
+      createPin();
+      return;
+    }
 
-      function setMarsAtmosphere() {
-        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#080403");
-        viewer.scene.skyAtmosphere.show = true;
-        viewer.scene.skyAtmosphere.hueShift = 0.92;
-        viewer.scene.skyAtmosphere.saturationShift = 0.35;
-        viewer.scene.skyAtmosphere.brightnessShift = -0.18;
-        viewer.scene.globe.showGroundAtmosphere = true;
-        viewer.scene.fog.enabled = true;
-        viewer.scene.fog.color = Cesium.Color.fromCssColorString("#b95d43");
-        viewer.scene.fog.density = 0.00035;
-      }
+    await showPlace(position, "クリック地点");
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-      async function loadMarsAsset(sequence) {
-        // 指定IDをまず地形アセットとして読み込みます。
-        try {
-          const marsTerrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(
-            MARS_TERRAIN_ASSET_ID,
-            { requestVertexNormals: true }
-          );
+  $("searchInput").addEventListener("input", () => {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(updateSuggestions, 500);
+  });
+  $("searchInput").addEventListener("keydown", event => {
+    if (event.key === "Enter") searchSubmit();
+    if (event.key === "Escape") $("suggestions").style.display = "none";
+  });
 
-          if (sequence !== switchSequence) return "stale";
+  $("dayNight").onclick = () => {
+    const current = Number($("timeSlider").value);
+    const next = current >= 0 ? -12 : 12;
+    $("timeSlider").value = String(next);
+    updateTime(next);
+  };
+  $("nowButton").onclick = () => {
+    $("timeSlider").value = "0";
+    updateTime(0);
+  };
+  $("timeSlider").oninput = event => updateTime(event.target.value);
 
-          viewer.terrainProvider = marsTerrain;
-          return "terrain";
-        } catch (terrainError) {
-          console.warn("火星アセットを地形として読み込めませんでした:", terrainError);
-        }
+  document.querySelectorAll(".body-button").forEach(button => {
+    button.onclick = () => switchBody(button.dataset.body);
+  });
+  document.querySelectorAll(".layer-button").forEach(button => {
+    button.onclick = () => setEarthLayer(button.dataset.layer);
+  });
 
-        // 地形でなければ3D Tilesとして試します。
-        try {
-          marsTileset = await Cesium.Cesium3DTileset.fromIonAssetId(
-            MARS_TERRAIN_ASSET_ID
-          );
+  $("pinModeButton").onclick = () => {
+    state.pinMode = !state.pinMode;
+    $("pinModeButton").classList.toggle("active", state.pinMode);
+    status(state.pinMode ? "地図上の場所をクリックしてください。" : "");
+  };
 
-          if (sequence !== switchSequence) {
-            viewer.scene.primitives.remove(marsTileset);
-            marsTileset = null;
-            return "stale";
-          }
+  $("routeButton").onclick = buildRoute;
+  $("flyRoute").onclick = startRouteFlight;
+  $("pauseRoute").onclick = () => {
+    state.routePaused = !state.routePaused;
+    $("pauseRoute").textContent = state.routePaused ? "再開" : "一時停止";
+  };
+  $("stopRoute").onclick = () => {
+    stopRoute(true);
+    $("pauseRoute").textContent = "一時停止";
+  };
 
-          viewer.scene.primitives.add(marsTileset);
-          return "tiles";
-        } catch (tilesError) {
-          console.warn("火星アセットを3D Tilesとして読み込めませんでした:", tilesError);
-          marsTileset = null;
-        }
+  $("measureButton").onclick = () => {
+    state.measureMode = !state.measureMode;
+    $("measureButton").classList.toggle("active", state.measureMode);
+    status(state.measureMode ? "地図を順にクリックして距離を計測してください。" : "");
+  };
+  $("clearMeasure").onclick = clearMeasure;
 
-        // 地形・3D Tilesでなければ画像アセットとして試します。
-        try {
-          const marsImagery = await Cesium.IonImageryProvider.fromAssetId(
-            MARS_TERRAIN_ASSET_ID
-          );
+  $("streetButton").onclick = enterStreet;
+  $("returnButton").onclick = leaveStreet;
+  $("closeCard").onclick = () => $("infoCard").style.display = "none";
+  $("cardStreet").onclick = enterStreet;
+  $("cardPin").onclick = createPin;
 
-          if (sequence !== switchSequence) return "stale";
+  $("setRouteFrom").onclick = () => {
+    if (state.selected) {
+      $("routeFrom").value =
+        `${state.selected.lat.toFixed(5)}, ${state.selected.lon.toFixed(5)}`;
+    }
+  };
+  $("setRouteTo").onclick = () => {
+    if (state.selected) {
+      $("routeTo").value =
+        `${state.selected.lat.toFixed(5)}, ${state.selected.lon.toFixed(5)}`;
+    }
+  };
 
-          viewer.imageryLayers.addImageryProvider(marsImagery);
-          return "imagery";
-        } catch (imageryError) {
-          console.error("火星アセットの読み込みに失敗しました:", imageryError);
-          throw new Error(
-            `火星アセット ${MARS_TERRAIN_ASSET_ID} を読み込めません。ion のアセットID、アセット形式、トークンのアクセス権を確認してください。`
-          );
-        }
-      }
+  window.addEventListener("keydown", event => {
+    if (!state.street || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
 
-      async function switchBody(body) {
-        const sequence = ++switchSequence;
-        activeBody = body;
+    const key = event.key.toLowerCase();
+    const movementKeys = [
+      "w", "a", "s", "d",
+      "arrowup", "arrowdown", "arrowleft", "arrowright"
+    ];
+    if (movementKeys.includes(key)) event.preventDefault();
 
-        document.querySelectorAll("[data-body]").forEach(function (button) {
-          button.classList.toggle("active", button.dataset.body === body);
-        });
+    if (key === "w" || key === "arrowup") walk("forward");
+    if (key === "s" || key === "arrowdown") walk("back");
+    if (key === "a" || key === "arrowleft") walk("left");
+    if (key === "d" || key === "arrowright") walk("right");
+    if (key === "escape") leaveStreet();
+  });
 
-        updateSpotButtons();
-        clearOptionalTilesets();
-        clearEarthBuildings();
-        clearImageryLayers();
+  try {
+    viewer.terrainProvider = await Cesium.Terrain.fromWorldTerrain();
+    await setEarthLayer("aerial");
 
-        // 天体切り替え中に以前の地形が残らないようにします。
-        viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
-        viewer.scene.globe.show = true;
-        viewer.scene.globe.enableLighting = true;
+    try {
+      state.buildings = await Cesium.createOsmBuildingsAsync();
+      viewer.scene.primitives.add(state.buildings);
+    } catch (error) {
+      console.warn("3D建物を読み込めません", error);
+    }
+  } catch (error) {
+    console.warn("地球の初期化に失敗しました", error);
+    status("地球の地形を読み込めません。ionトークンとネットワークを確認してください。");
+  }
 
-        try {
-          if (body === "earth") {
-            setEarthAtmosphere();
-            setStatus("地球の地形と衛星画像を読み込んでいます…");
+  viewer.clock.shouldAnimate = true;
+  loadPins();
+  $("loading").classList.add("hidden");
+}
 
-            const [terrainResult, imageryResult] = await Promise.allSettled([
-              Cesium.createWorldTerrainAsync({
-                requestWaterMask: true,
-                requestVertexNormals: true
-              }),
-              Cesium.IonImageryProvider.fromAssetId(WORLD_IMAGERY_ASSET_ID)
-            ]);
-
-            if (sequence !== switchSequence) return;
-
-            if (terrainResult.status === "fulfilled") {
-              viewer.terrainProvider = terrainResult.value;
-            } else {
-              console.error("地球の地形を読み込めませんでした:", terrainResult.reason);
-              setStatus("地球の地形を読み込めませんでした。ion のトークンを確認してください。", true);
-            }
-
-            if (imageryResult.status === "fulfilled") {
-              viewer.imageryLayers.addImageryProvider(imageryResult.value);
-            } else {
-              console.error("地球の衛星画像を読み込めませんでした:", imageryResult.reason);
-            }
-
-            if (sequence !== switchSequence) return;
-
-            try {
-              const buildings = await Cesium.createOsmBuildingsAsync();
-
-              if (sequence !== switchSequence) {
-                viewer.scene.primitives.remove(buildings);
-                return;
-              }
-
-              osmBuildings = buildings;
-              viewer.scene.primitives.add(osmBuildings);
-            } catch (buildingError) {
-              console.warn("OSM Buildings を読み込めませんでした:", buildingError);
-            }
-
-            viewer.camera.flyTo({
-              destination: Cesium.Cartesian3.fromDegrees(0, 15, 22000000),
-              duration: 1.8
-            });
-
-            if (
-              terrainResult.status === "fulfilled" &&
-              imageryResult.status === "fulfilled"
-            ) {
-              setStatus("地球：Cesium World Terrain・衛星画像・OSM Buildings を表示中");
-            } else {
-              setStatus("地球を表示中です。一部の地形・画像レイヤーを読み込めませんでした。", true);
-            }
-          } else if (body === "moon") {
-            setMoonAtmosphere();
-            setStatus("月面アセットを読み込んでいます…");
-
-            try {
-              const moonTerrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(
-                MOON_TERRAIN_ASSET_ID,
-                { requestVertexNormals: true }
-              );
-
-              if (sequence !== switchSequence) return;
-
-              viewer.terrainProvider = moonTerrain;
-            } catch (terrainError) {
-              console.warn("月面アセットを地形として読み込めませんでした:", terrainError);
-
-              try {
-                moonTileset = await Cesium.Cesium3DTileset.fromIonAssetId(
-                  MOON_TERRAIN_ASSET_ID
-                );
-
-                if (sequence !== switchSequence) {
-                  viewer.scene.primitives.remove(moonTileset);
-                  moonTileset = null;
-                  return;
-                }
-
-                viewer.scene.primitives.add(moonTileset);
-              } catch (tilesError) {
-                console.error("月面アセットの読み込みに失敗しました:", tilesError);
-                moonTileset = null;
-
-                throw new Error(
-                  `月面アセット ${MOON_TERRAIN_ASSET_ID} を読み込めません。ion のアセットID、アセット形式、トークンのアクセス権を確認してください。`
-                );
-              }
-            }
-
-            if (sequence !== switchSequence) return;
-
-            viewer.camera.flyTo({
-              destination: Cesium.Cartesian3.fromDegrees(0, 0, 12000000),
-              duration: 1.8
-            });
-
-            setStatus(`月：ion 月面アセット ${MOON_TERRAIN_ASSET_ID} を表示中`);
-          } else {
-            setMarsAtmosphere();
-            setStatus(`火星アセット ${MARS_TERRAIN_ASSET_ID} を読み込んでいます…`);
-
-            const marsAssetType = await loadMarsAsset(sequence);
-            if (sequence !== switchSequence || marsAssetType === "stale") return;
-
-            viewer.camera.flyTo({
-              destination: Cesium.Cartesian3.fromDegrees(0, 0, 14000000),
-              duration: 1.8
-            });
-
-            setStatus(`火星：ion アセット ${MARS_TERRAIN_ASSET_ID} を表示中（${marsAssetType}）`);
-          }
-        } catch (error) {
-          console.error(error);
-
-          if (sequence === switchSequence) {
-            setStatus(
-              error.message || "読み込みに失敗しました。ion のトークンとアセットIDを確認してください。",
-              true
-            );
-          }
-        }
-      }
-
-      document.querySelectorAll("[data-body]").forEach(function (button) {
-        button.addEventListener("click", function () {
-          switchBody(button.dataset.body);
-        });
-      });
-
-      function updateSunTime() {
-        const minutes = Number(timeSlider.value);
-        const hours = Math.floor(minutes / 60);
-        const mins = minutes % 60;
-
-        timeLabel.textContent =
-          String(hours).padStart(2, "0") + ":" + String(mins).padStart(2, "0");
-
-        const date = new Date();
-        date.setUTCHours(hours, mins, 0, 0);
-        viewer.clock.currentTime = Cesium.JulianDate.fromDate(date);
-        viewer.scene.requestRender();
-      }
-
-      timeSlider.addEventListener("input", updateSunTime);
-
-      updateSunTime();
-      updateSpotButtons();
-      await switchBody("earth");
-    })();
-  </script>
+init().catch(error => {
+  console.error(error);
+  $("loading").textContent =
+    "初期化に失敗しました。Cesium ionトークンとブラウザーコンソールを確認してください。";
+});
+</script>
 </body>
 </html>

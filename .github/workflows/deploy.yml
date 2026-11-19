@@ -1,9 +1,10 @@
-name: Deploy to GitHub Pages
+name: Deploy Cesium Explorer to GitHub Pages
 
 on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -12,82 +13,61 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: github-pages
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Pages
+      - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Replace Cesium token placeholder
+      - name: Build site and inject Cesium ion token
         env:
-          ACCESSTOKEN: ${{ secrets.accesstoken }}
+          ACCESSTOKEN: ${{ secrets.ACCESSTOKEN }}
         run: |
-          python - <<'PY'
-          import json
+          python3 - <<'PY'
           import os
           from pathlib import Path
 
-          token = os.environ.get("ACCESSTOKEN", "").strip()
+          token = os.environ.get("ACCESSTOKEN", "")
           if not token:
-              raise SystemExit(
-                  "Secret accesstoken が空、またはこのワークフローから参照できません。"
-                  "Settings → Secrets and variables → Actions を確認してください。"
-              )
+              raise SystemExit("GitHub Repository Secret ACCESSTOKEN が設定されていません。")
 
-          path = Path("index.html")
-          if not path.is_file():
-              raise SystemExit("リポジトリ直下に index.html がありません。")
+          source = Path("index.html")
+          if not source.exists():
+              raise SystemExit("index.html が見つかりません。")
 
-          html = path.read_text(encoding="utf-8")
-          encoded_token = json.dumps(token)
+          html = source.read_text(encoding="utf-8")
+          placeholder = "__accesstoken__"
+          if placeholder not in html:
+              raise SystemExit("index.html に __accesstoken__ がありません。")
 
-          # HTML内のプレースホルダーがシングル・ダブルクォートのどちらでも置換
-          markers = [
-              '"__accesstoken__"',
-              "'__accesstoken__'",
-          ]
-
-          replaced = False
-          for marker in markers:
-              if marker in html:
-                  html = html.replace(marker, encoded_token)
-                  replaced = True
-
-          if not replaced:
-              raise SystemExit(
-                  'index.html に "__accesstoken__" が見つかりません。'
-                  "プレースホルダーの表記を確認してください。"
-              )
-
-          if "__accesstoken__" in html:
-              raise SystemExit("置換後もプレースホルダーが残っています。")
-
-          path.write_text(html, encoding="utf-8")
-          print("トークンの置換に成功しました。")
+          # 公開用ディレクトリにはindex.htmlのみを配置し、.env等はコピーしない
+          output = Path("dist")
+          output.mkdir(exist_ok=True)
+          (output / "index.html").write_text(
+              html.replace(placeholder, token),
+              encoding="utf-8"
+          )
           PY
-
-      - name: Prepare Pages artifact
-        run: |
-          mkdir -p _site
-          cp index.html _site/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: dist
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
