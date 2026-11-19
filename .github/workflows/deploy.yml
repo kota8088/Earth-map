@@ -30,7 +30,7 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Replace token placeholder
+      - name: Replace Cesium token placeholder
         env:
           ACCESSTOKEN: ${{ secrets.ACCESSTOKEN }}
         run: |
@@ -39,22 +39,35 @@ jobs:
           import os
           from pathlib import Path
 
-          token = os.environ.get("ACCESSTOKEN", "")
+          token = os.environ.get("ACCESSTOKEN", "").strip()
           if not token:
-              raise SystemExit("Repository Secret ACCESSTOKEN が設定されていません")
+              raise SystemExit(
+                  "Repository Secret ACCESSTOKEN が空か、Actionsから参照できません"
+              )
 
           path = Path("index.html")
+          if not path.is_file():
+              raise SystemExit("リポジトリ直下に index.html がありません")
+
           html = path.read_text(encoding="utf-8")
           marker = '"__accesstoken__"'
 
           if marker not in html:
-              raise SystemExit('index.html に "__accesstoken__" がありません')
+              raise SystemExit(
+                  'index.html に "__accesstoken__" が見つかりません。'
+                  "プレースホルダーの表記を確認してください。"
+              )
 
           html = html.replace(marker, json.dumps(token))
           path.write_text(html, encoding="utf-8")
+
+          if marker in path.read_text(encoding="utf-8"):
+              raise SystemExit("トークン置換後もプレースホルダーが残っています")
+
+          print("Cesium token placeholder replaced successfully.")
           PY
 
-      - name: Prepare Pages files
+      - name: Prepare Pages artifact
         run: |
           mkdir -p _site
           cp index.html _site/index.html
