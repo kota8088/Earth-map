@@ -32,7 +32,7 @@ jobs:
 
       - name: Replace Cesium token placeholder
         env:
-          ACCESSTOKEN: ${{ secrets.ACCESSTOKEN }}
+          ACCESSTOKEN: ${{ secrets.accesstoken }}
         run: |
           python - <<'PY'
           import json
@@ -42,29 +42,40 @@ jobs:
           token = os.environ.get("ACCESSTOKEN", "").strip()
           if not token:
               raise SystemExit(
-                  "Repository Secret ACCESSTOKEN が空か、Actionsから参照できません"
+                  "Secret accesstoken が空、またはこのワークフローから参照できません。"
+                  "Settings → Secrets and variables → Actions を確認してください。"
               )
 
           path = Path("index.html")
           if not path.is_file():
-              raise SystemExit("リポジトリ直下に index.html がありません")
+              raise SystemExit("リポジトリ直下に index.html がありません。")
 
           html = path.read_text(encoding="utf-8")
-          marker = '"__accesstoken__"'
+          encoded_token = json.dumps(token)
 
-          if marker not in html:
+          # HTML内のプレースホルダーがシングル・ダブルクォートのどちらでも置換
+          markers = [
+              '"__accesstoken__"',
+              "'__accesstoken__'",
+          ]
+
+          replaced = False
+          for marker in markers:
+              if marker in html:
+                  html = html.replace(marker, encoded_token)
+                  replaced = True
+
+          if not replaced:
               raise SystemExit(
                   'index.html に "__accesstoken__" が見つかりません。'
                   "プレースホルダーの表記を確認してください。"
               )
 
-          html = html.replace(marker, json.dumps(token))
+          if "__accesstoken__" in html:
+              raise SystemExit("置換後もプレースホルダーが残っています。")
+
           path.write_text(html, encoding="utf-8")
-
-          if marker in path.read_text(encoding="utf-8"):
-              raise SystemExit("トークン置換後もプレースホルダーが残っています")
-
-          print("Cesium token placeholder replaced successfully.")
+          print("トークンの置換に成功しました。")
           PY
 
       - name: Prepare Pages artifact
