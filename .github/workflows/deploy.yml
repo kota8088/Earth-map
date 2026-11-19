@@ -33,7 +33,7 @@ jobs:
 
       - name: Prepare HTML with ion token
         env:
-          accesstoken: ${{ secrets.accesstoken }}
+          accesstoken: ${{ secrets.ACCESSTOKEN }}
         shell: bash
         run: |
           python3 - <<'PY'
