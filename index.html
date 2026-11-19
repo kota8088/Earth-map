@@ -3,9 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>地球・月・火星エクスプローラー</title>
-  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Widgets/widgets.css">
+  <title>Earth · Moon · Mars Explorer</title>
+
+  <link
+    rel="stylesheet"
+    href="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Widgets/widgets.css"
+  >
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Cesium.js"></script>
+
   <style>
     html, body, #cesiumContainer {
       width: 100%;
@@ -21,35 +26,40 @@
       z-index: 5;
       top: 16px;
       left: 16px;
-      width: min(330px, calc(100vw - 56px));
+      width: min(320px, calc(100vw - 56px));
       padding: 16px;
       color: #f3f6ff;
-      background: rgba(10, 16, 30, .86);
-      border: 1px solid rgba(180, 205, 255, .2);
+      background: rgba(10, 16, 30, 0.84);
+      border: 1px solid rgba(180, 205, 255, 0.2);
       border-radius: 12px;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, .4);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
       backdrop-filter: blur(12px);
     }
 
-    h1 { margin: 0 0 4px; font-size: 17px; }
-    .subtitle { margin: 0 0 14px; color: #aab7d0; font-size: 12px; }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 17px;
+      letter-spacing: 0.04em;
+    }
+
+    .subtitle {
+      margin: 0 0 14px;
+      color: #aab7d0;
+      font-size: 12px;
+    }
+
     .section-title {
       margin: 14px 0 7px;
       color: #aab7d0;
       font-size: 11px;
       font-weight: 700;
-      letter-spacing: .09em;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
     }
 
     .button-row {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 7px;
-    }
-
-    #spotButtons {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
       gap: 7px;
     }
 
@@ -60,32 +70,70 @@
       font: inherit;
       font-size: 12px;
       cursor: pointer;
-      background: rgba(255, 255, 255, .08);
-      border: 1px solid rgba(190, 210, 255, .2);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(190, 210, 255, 0.2);
       border-radius: 7px;
+      transition: background 120ms ease, border-color 120ms ease;
     }
 
-    button:hover { background: rgba(130, 170, 255, .2); }
-    button.active { background: #2768d8; border-color: #70a5ff; }
-    #spotButtons button { text-align: left; }
+    button:hover {
+      background: rgba(130, 170, 255, 0.2);
+      border-color: rgba(190, 210, 255, 0.52);
+    }
+
+    button.active {
+      color: #fff;
+      background: #2768d8;
+      border-color: #70a5ff;
+    }
+
+    #spotButtons {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 7px;
+    }
+
+    #spotButtons button {
+      text-align: left;
+    }
 
     .slider-line {
       display: flex;
       justify-content: space-between;
+      gap: 10px;
       margin: 12px 0 5px;
       color: #d8e1f5;
       font-size: 12px;
     }
 
-    input[type="range"] { width: 100%; accent-color: #68a1ff; }
-    #status { min-height: 16px; margin-top: 10px; color: #aab7d0; font-size: 11px; line-height: 1.45; }
-    #status.error { color: #ff9b9b; }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #68a1ff;
+    }
+
+    #status {
+      min-height: 16px;
+      margin-top: 10px;
+      color: #aab7d0;
+      font-size: 11px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+
+    #status.error {
+      color: #ff9b9b;
+    }
 
     @media (max-width: 480px) {
-      #panel { top: 8px; left: 8px; padding: 12px; }
+      #panel {
+        top: 8px;
+        left: 8px;
+        padding: 12px;
+      }
     }
   </style>
 </head>
+
 <body>
   <div id="cesiumContainer"></div>
 
@@ -109,6 +157,7 @@
       <span id="timeLabel">12:00</span>
     </div>
     <input id="timeSlider" type="range" min="0" max="1439" value="720" step="1">
+
     <div id="status" role="status">初期化しています…</div>
   </aside>
 
@@ -116,31 +165,23 @@
     (async function () {
       "use strict";
 
-      // YAML内のキーは accesstoken: "..." または accesstoken: ... にしてください。
-      // HTMLからサーバー環境変数を直接読むことはできないため、
-      // config.yaml は環境変数 accesstoken を使って配信前に生成してください。
-      const CONFIG_FILES = [
-        "./config.yaml",
-        "./config.yml",
-        "./settings.yaml",
-        "./settings.yml",
-        "./.env"
-      ];
+      // GitHub Actions の deploy.yml が公開時にこの値を置換します。
+      // config.yaml は使用しません。
+      const TOKEN_PLACEHOLDER = "__accesstoken__";
 
-      // Cesium ion 標準アセット
-      const EARTH_IMAGERY_ASSET_ID = 2;
-      const MOON_ASSET_ID = 2684829;
-      const MARS_ASSET_ID = 3644333;
+      const MOON_TERRAIN_ASSET_ID = 2684829;
+      const MARS_TERRAIN_ASSET_ID = 3644333;
+      const WORLD_IMAGERY_ASSET_ID = 2;
 
       const statusEl = document.getElementById("status");
-      const spotButtonsEl = document.getElementById("spotButtons");
       const timeSlider = document.getElementById("timeSlider");
       const timeLabel = document.getElementById("timeLabel");
+      const spotButtons = document.getElementById("spotButtons");
 
-      let viewer;
       let activeBody = "earth";
       let switchSequence = 0;
-      let activeTileset = null;
+      let moonTileset = null;
+      let marsTileset = null;
       let osmBuildings = null;
 
       function setStatus(message, isError) {
@@ -148,35 +189,85 @@
         statusEl.classList.toggle("error", Boolean(isError));
       }
 
-      function extractToken(text) {
-        // YAML形式: accesstoken: "token" / accesstoken: token
-        // .env形式: accesstoken="token" / accesstoken=token
-        const match = text.match(
-          /^\s*accesstoken\s*(?::|=)\s*(?:"([^"]*)"|'([^']*)'|([^#\r\n]*?))\s*(?:#.*)?$/mi
+      function isLocalDevelopment() {
+        return (
+          location.hostname === "localhost" ||
+          location.hostname === "127.0.0.1"
         );
-        return match ? (match[1] || match[2] || match[3] || "").trim() : "";
       }
 
-      async function loadToken() {
-        for (const url of CONFIG_FILES) {
-          try {
-            const response = await fetch(url, { cache: "no-store" });
-            if (!response.ok) continue;
+      async function loadAccessToken() {
+        let token = TOKEN_PLACEHOLDER;
 
-            const token = extractToken(await response.text());
-            if (token && token !== "__accesstoken__") {
-              Cesium.Ion.defaultAccessToken = token;
-              return;
+        // .env はローカル開発時だけ読み込みます。
+        // GitHub Pages では .env や config.yaml をリクエストしません。
+        if (isLocalDevelopment()) {
+          try {
+            const response = await fetch("./.env", { cache: "no-store" });
+
+            if (response.ok) {
+              const text = await response.text();
+              const match = text.match(
+                /^\s*accesstoken\s*=\s*(?:"([^"]*)"|'([^']*)'|([^#\r\n]*))/m
+              );
+
+              if (match) {
+                const localToken = (match[1] || match[2] || match[3] || "").trim();
+                if (localToken) {
+                  token = localToken;
+                }
+              }
             }
           } catch (error) {
-            // 存在しない設定ファイルは次の候補を試します。
+            console.warn(".env を読み込めませんでした。", error);
           }
         }
 
-        throw new Error(
-          "アクセストークンを読み込めません。HTMLと同じ場所に config.yaml を置き、accesstoken を設定してください。"
-        );
+        if (!token || token === TOKEN_PLACEHOLDER) {
+          throw new Error(
+            "アクセストークンが設定されていません。GitHub Actions の ACCESSTOKEN Secret と deploy.yml の置換設定を確認してください。"
+          );
+        }
+
+        return token;
       }
+
+      let accessToken;
+
+      try {
+        accessToken = await loadAccessToken();
+      } catch (error) {
+        console.error(error);
+        setStatus(error.message, true);
+        return;
+      }
+
+      Cesium.Ion.defaultAccessToken = accessToken;
+
+      const viewer = new Cesium.Viewer("cesiumContainer", {
+        animation: false,
+        baseLayerPicker: false,
+        fullscreenButton: false,
+        geocoder: false,
+        homeButton: false,
+        infoBox: false,
+        navigationHelpButton: false,
+        sceneModePicker: false,
+        selectionIndicator: false,
+        timeline: false,
+        vrButton: false,
+        shouldAnimate: false,
+        requestRenderMode: false,
+        baseLayer: false,
+        terrainProvider: new Cesium.EllipsoidTerrainProvider()
+      });
+
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#02040c");
+      viewer.scene.globe.enableLighting = true;
+      viewer.scene.globe.showGroundAtmosphere = true;
+      viewer.scene.skyAtmosphere.show = true;
+      viewer.scene.fog.enabled = true;
+      viewer.scene.light = new Cesium.SunLight();
 
       const spots = {
         earth: [
@@ -198,12 +289,13 @@
       };
 
       function updateSpotButtons() {
-        spotButtonsEl.replaceChildren();
+        spotButtons.replaceChildren();
 
         for (const spot of spots[activeBody]) {
           const button = document.createElement("button");
           button.type = "button";
           button.textContent = spot.label;
+
           button.addEventListener("click", function () {
             viewer.camera.flyTo({
               destination: Cesium.Cartesian3.fromDegrees(
@@ -211,101 +303,119 @@
                 spot.lat,
                 spot.height
               ),
-              duration: 2.2
+              duration: 2.4
             });
           });
-          spotButtonsEl.appendChild(button);
+
+          spotButtons.appendChild(button);
         }
       }
 
-      function clearBodyAssets() {
-        if (activeTileset) {
-          viewer.scene.primitives.remove(activeTileset);
-          activeTileset = null;
+      function clearOptionalTilesets() {
+        if (moonTileset) {
+          viewer.scene.primitives.remove(moonTileset);
+          moonTileset = null;
         }
+
+        if (marsTileset) {
+          viewer.scene.primitives.remove(marsTileset);
+          marsTileset = null;
+        }
+      }
+
+      function clearEarthBuildings() {
         if (osmBuildings) {
           viewer.scene.primitives.remove(osmBuildings);
           osmBuildings = null;
         }
+      }
 
+      function clearImageryLayers() {
         viewer.imageryLayers.removeAll(true);
-        viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
       }
 
-      function setAtmosphere(body) {
-        const scene = viewer.scene;
-
-        if (body === "earth") {
-          scene.backgroundColor = Cesium.Color.fromCssColorString("#02040c");
-          scene.skyAtmosphere.show = true;
-          scene.skyAtmosphere.hueShift = 0;
-          scene.skyAtmosphere.saturationShift = 0;
-          scene.skyAtmosphere.brightnessShift = 0;
-          scene.globe.showGroundAtmosphere = true;
-          scene.fog.enabled = true;
-          scene.fog.color = Cesium.Color.fromCssColorString("#b7d8ff");
-          scene.fog.density = 0.0002;
-        } else if (body === "moon") {
-          scene.backgroundColor = Cesium.Color.fromCssColorString("#02040c");
-          scene.skyAtmosphere.show = false;
-          scene.globe.showGroundAtmosphere = false;
-          scene.fog.enabled = false;
-        } else {
-          scene.backgroundColor = Cesium.Color.fromCssColorString("#080403");
-          scene.skyAtmosphere.show = true;
-          scene.skyAtmosphere.hueShift = 0.92;
-          scene.skyAtmosphere.saturationShift = 0.35;
-          scene.skyAtmosphere.brightnessShift = -0.18;
-          scene.globe.showGroundAtmosphere = true;
-          scene.fog.enabled = true;
-          scene.fog.color = Cesium.Color.fromCssColorString("#b95d43");
-          scene.fog.density = 0.00035;
-        }
+      function setEarthAtmosphere() {
+        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#02040c");
+        viewer.scene.skyAtmosphere.show = true;
+        viewer.scene.skyAtmosphere.hueShift = 0;
+        viewer.scene.skyAtmosphere.saturationShift = 0;
+        viewer.scene.skyAtmosphere.brightnessShift = 0;
+        viewer.scene.globe.showGroundAtmosphere = true;
+        viewer.scene.fog.enabled = true;
+        viewer.scene.fog.color = Cesium.Color.fromCssColorString("#b7d8ff");
+        viewer.scene.fog.density = 0.0002;
       }
 
-      async function loadIonAsset(assetId, sequence) {
-        const errors = [];
+      function setMoonAtmosphere() {
+        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#02040c");
+        viewer.scene.skyAtmosphere.show = false;
+        viewer.scene.globe.showGroundAtmosphere = false;
+        viewer.scene.fog.enabled = false;
+      }
 
-        // アセットの種類に応じて、地形・画像・3D Tilesの順に試します。
+      function setMarsAtmosphere() {
+        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#080403");
+        viewer.scene.skyAtmosphere.show = true;
+        viewer.scene.skyAtmosphere.hueShift = 0.92;
+        viewer.scene.skyAtmosphere.saturationShift = 0.35;
+        viewer.scene.skyAtmosphere.brightnessShift = -0.18;
+        viewer.scene.globe.showGroundAtmosphere = true;
+        viewer.scene.fog.enabled = true;
+        viewer.scene.fog.color = Cesium.Color.fromCssColorString("#b95d43");
+        viewer.scene.fog.density = 0.00035;
+      }
+
+      async function loadMarsAsset(sequence) {
+        // 指定IDをまず地形アセットとして読み込みます。
         try {
-          const terrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(
-            assetId,
+          const marsTerrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(
+            MARS_TERRAIN_ASSET_ID,
             { requestVertexNormals: true }
           );
+
           if (sequence !== switchSequence) return "stale";
-          viewer.terrainProvider = terrain;
+
+          viewer.terrainProvider = marsTerrain;
           return "terrain";
-        } catch (error) {
-          errors.push(error);
+        } catch (terrainError) {
+          console.warn("火星アセットを地形として読み込めませんでした:", terrainError);
         }
 
+        // 地形でなければ3D Tilesとして試します。
         try {
-          const imagery = await Cesium.IonImageryProvider.fromAssetId(assetId);
-          if (sequence !== switchSequence) return "stale";
-          viewer.imageryLayers.addImageryProvider(imagery);
-          return "imagery";
-        } catch (error) {
-          errors.push(error);
-        }
+          marsTileset = await Cesium.Cesium3DTileset.fromIonAssetId(
+            MARS_TERRAIN_ASSET_ID
+          );
 
-        try {
-          const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
           if (sequence !== switchSequence) {
-            viewer.scene.primitives.remove(tileset);
+            viewer.scene.primitives.remove(marsTileset);
+            marsTileset = null;
             return "stale";
           }
-          activeTileset = tileset;
-          viewer.scene.primitives.add(tileset);
-          return "3dtiles";
-        } catch (error) {
-          errors.push(error);
+
+          viewer.scene.primitives.add(marsTileset);
+          return "tiles";
+        } catch (tilesError) {
+          console.warn("火星アセットを3D Tilesとして読み込めませんでした:", tilesError);
+          marsTileset = null;
         }
 
-        console.error("ion asset load errors:", errors);
-        throw new Error(
-          "ionアセット " + assetId +
-          " を地形・画像・3D Tilesとして読み込めません。アセットIDとトークンを確認してください。"
-        );
+        // 地形・3D Tilesでなければ画像アセットとして試します。
+        try {
+          const marsImagery = await Cesium.IonImageryProvider.fromAssetId(
+            MARS_TERRAIN_ASSET_ID
+          );
+
+          if (sequence !== switchSequence) return "stale";
+
+          viewer.imageryLayers.addImageryProvider(marsImagery);
+          return "imagery";
+        } catch (imageryError) {
+          console.error("火星アセットの読み込みに失敗しました:", imageryError);
+          throw new Error(
+            `火星アセット ${MARS_TERRAIN_ASSET_ID} を読み込めません。ion のアセットID、アセット形式、トークンのアクセス権を確認してください。`
+          );
+        }
       }
 
       async function switchBody(body) {
@@ -317,89 +427,142 @@
         });
 
         updateSpotButtons();
-        clearBodyAssets();
-        setAtmosphere(body);
+        clearOptionalTilesets();
+        clearEarthBuildings();
+        clearImageryLayers();
+
+        // 天体切り替え中に以前の地形が残らないようにします。
+        viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+        viewer.scene.globe.show = true;
+        viewer.scene.globe.enableLighting = true;
 
         try {
           if (body === "earth") {
-            setStatus("地球の衛星画像と3D地形を読み込んでいます…");
+            setEarthAtmosphere();
+            setStatus("地球の地形と衛星画像を読み込んでいます…");
 
-            // 地球の画像はCesium ion標準アセット、地形はCesium World Terrainを使用。
-            const imageryPromise = Cesium.IonImageryProvider.fromAssetId(
-              EARTH_IMAGERY_ASSET_ID
-            );
-            const terrainPromise = Cesium.createWorldTerrainAsync({
-              requestWaterMask: true,
-              requestVertexNormals: true
-            });
+            const [terrainResult, imageryResult] = await Promise.allSettled([
+              Cesium.createWorldTerrainAsync({
+                requestWaterMask: true,
+                requestVertexNormals: true
+              }),
+              Cesium.IonImageryProvider.fromAssetId(WORLD_IMAGERY_ASSET_ID)
+            ]);
 
-            const imagery = await imageryPromise;
             if (sequence !== switchSequence) return;
-            viewer.imageryLayers.addImageryProvider(imagery);
 
-            const terrain = await terrainPromise;
+            if (terrainResult.status === "fulfilled") {
+              viewer.terrainProvider = terrainResult.value;
+            } else {
+              console.error("地球の地形を読み込めませんでした:", terrainResult.reason);
+              setStatus("地球の地形を読み込めませんでした。ion のトークンを確認してください。", true);
+            }
+
+            if (imageryResult.status === "fulfilled") {
+              viewer.imageryLayers.addImageryProvider(imageryResult.value);
+            } else {
+              console.error("地球の衛星画像を読み込めませんでした:", imageryResult.reason);
+            }
+
             if (sequence !== switchSequence) return;
-            viewer.terrainProvider = terrain;
 
             try {
-              osmBuildings = await Cesium.createOsmBuildingsAsync();
+              const buildings = await Cesium.createOsmBuildingsAsync();
+
               if (sequence !== switchSequence) {
-                viewer.scene.primitives.remove(osmBuildings);
-                osmBuildings = null;
+                viewer.scene.primitives.remove(buildings);
                 return;
               }
+
+              osmBuildings = buildings;
               viewer.scene.primitives.add(osmBuildings);
-            } catch (error) {
-              console.warn("OSM Buildingsを読み込めませんでした:", error);
+            } catch (buildingError) {
+              console.warn("OSM Buildings を読み込めませんでした:", buildingError);
             }
 
             viewer.camera.flyTo({
               destination: Cesium.Cartesian3.fromDegrees(0, 15, 22000000),
               duration: 1.8
             });
-            setStatus("地球：Cesium World Imagery・World Terrain・OSM Buildings");
-            return;
+
+            if (
+              terrainResult.status === "fulfilled" &&
+              imageryResult.status === "fulfilled"
+            ) {
+              setStatus("地球：Cesium World Terrain・衛星画像・OSM Buildings を表示中");
+            } else {
+              setStatus("地球を表示中です。一部の地形・画像レイヤーを読み込めませんでした。", true);
+            }
+          } else if (body === "moon") {
+            setMoonAtmosphere();
+            setStatus("月面アセットを読み込んでいます…");
+
+            try {
+              const moonTerrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(
+                MOON_TERRAIN_ASSET_ID,
+                { requestVertexNormals: true }
+              );
+
+              if (sequence !== switchSequence) return;
+
+              viewer.terrainProvider = moonTerrain;
+            } catch (terrainError) {
+              console.warn("月面アセットを地形として読み込めませんでした:", terrainError);
+
+              try {
+                moonTileset = await Cesium.Cesium3DTileset.fromIonAssetId(
+                  MOON_TERRAIN_ASSET_ID
+                );
+
+                if (sequence !== switchSequence) {
+                  viewer.scene.primitives.remove(moonTileset);
+                  moonTileset = null;
+                  return;
+                }
+
+                viewer.scene.primitives.add(moonTileset);
+              } catch (tilesError) {
+                console.error("月面アセットの読み込みに失敗しました:", tilesError);
+                moonTileset = null;
+
+                throw new Error(
+                  `月面アセット ${MOON_TERRAIN_ASSET_ID} を読み込めません。ion のアセットID、アセット形式、トークンのアクセス権を確認してください。`
+                );
+              }
+            }
+
+            if (sequence !== switchSequence) return;
+
+            viewer.camera.flyTo({
+              destination: Cesium.Cartesian3.fromDegrees(0, 0, 12000000),
+              duration: 1.8
+            });
+
+            setStatus(`月：ion 月面アセット ${MOON_TERRAIN_ASSET_ID} を表示中`);
+          } else {
+            setMarsAtmosphere();
+            setStatus(`火星アセット ${MARS_TERRAIN_ASSET_ID} を読み込んでいます…`);
+
+            const marsAssetType = await loadMarsAsset(sequence);
+            if (sequence !== switchSequence || marsAssetType === "stale") return;
+
+            viewer.camera.flyTo({
+              destination: Cesium.Cartesian3.fromDegrees(0, 0, 14000000),
+              duration: 1.8
+            });
+
+            setStatus(`火星：ion アセット ${MARS_TERRAIN_ASSET_ID} を表示中（${marsAssetType}）`);
           }
-
-          const assetId = body === "moon" ? MOON_ASSET_ID : MARS_ASSET_ID;
-          setStatus(
-            (body === "moon" ? "月" : "火星") +
-            "のionアセット " + assetId + " を読み込んでいます…"
-          );
-
-          const result = await loadIonAsset(assetId, sequence);
-          if (result === "stale" || sequence !== switchSequence) return;
-
-          const initialHeight = body === "moon" ? 12000000 : 14000000;
-          viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(0, 0, initialHeight),
-            duration: 1.8
-          });
-
-          setStatus(
-            (body === "moon" ? "月" : "火星") +
-            "：アセット " + assetId + " を " + result + " として表示中"
-          );
         } catch (error) {
-          if (sequence !== switchSequence) return;
           console.error(error);
-          setStatus(error.message || "アセットを読み込めませんでした。", true);
+
+          if (sequence === switchSequence) {
+            setStatus(
+              error.message || "読み込みに失敗しました。ion のトークンとアセットIDを確認してください。",
+              true
+            );
+          }
         }
-      }
-
-      function updateSunTime() {
-        const value = Number(timeSlider.value);
-        const hours = Math.floor(value / 60);
-        const minutes = value % 60;
-
-        timeLabel.textContent =
-          String(hours).padStart(2, "0") + ":" +
-          String(minutes).padStart(2, "0");
-
-        const date = new Date();
-        date.setUTCHours(hours, minutes, 0, 0);
-        viewer.clock.currentTime = Cesium.JulianDate.fromDate(date);
-        viewer.scene.requestRender();
       }
 
       document.querySelectorAll("[data-body]").forEach(function (button) {
@@ -408,41 +571,25 @@
         });
       });
 
+      function updateSunTime() {
+        const minutes = Number(timeSlider.value);
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+
+        timeLabel.textContent =
+          String(hours).padStart(2, "0") + ":" + String(mins).padStart(2, "0");
+
+        const date = new Date();
+        date.setUTCHours(hours, mins, 0, 0);
+        viewer.clock.currentTime = Cesium.JulianDate.fromDate(date);
+        viewer.scene.requestRender();
+      }
+
       timeSlider.addEventListener("input", updateSunTime);
 
-      try {
-        await loadToken();
-
-        viewer = new Cesium.Viewer("cesiumContainer", {
-          animation: false,
-          baseLayerPicker: false,
-          fullscreenButton: false,
-          geocoder: false,
-          homeButton: false,
-          infoBox: false,
-          navigationHelpButton: false,
-          sceneModePicker: false,
-          selectionIndicator: false,
-          timeline: false,
-          vrButton: false,
-          shouldAnimate: false,
-          requestRenderMode: false,
-          baseLayer: false,
-          terrainProvider: new Cesium.EllipsoidTerrainProvider()
-        });
-
-        viewer.scene.globe.enableLighting = true;
-        viewer.scene.globe.showGroundAtmosphere = true;
-        viewer.scene.skyAtmosphere.show = true;
-        viewer.scene.light = new Cesium.SunLight();
-
-        updateSunTime();
-        updateSpotButtons();
-        await switchBody("earth");
-      } catch (error) {
-        console.error(error);
-        setStatus(error.message || "初期化に失敗しました。", true);
-      }
+      updateSunTime();
+      updateSpotButtons();
+      await switchBody("earth");
     })();
   </script>
 </body>
