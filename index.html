@@ -195,242 +195,254 @@
     </div>
     <div id="infoContent" class="subtle"></div>
   </aside>
-
   <script>
-    "use strict";
+  "use strict";
 
-    const CONFIG = {
-      // Cesium ionのトークンに置き換えてください。
-      ionToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IndSQ0UxQzJmZkhKUnE4Qm8iLCJqdGkiOiI3Yjg5YzUwZC02NTlmLTQzODctYjExYi04MTY4Nzk2NzA0YjEiLCJpZCI6NTEyNjIzLCJzdWIiOiJrb3RhODA4OCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiLlroflrpnjg57jg4Pjg5fnlKgiLCJpYXQiOjE3OTUxNDY2NDV9.ISQO_VX5rw02TFzQm_HEkUgV5HgJdeQ48ogXJVMsqL8",
+  const CONFIG = {
+    // Cesium ionで発行したトークンに置き換えてください。
+    ionToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IndSQ0UxQzJmZkhKUnE4Qm8iLCJqdGkiOiI3Yjg5YzUwZC02NTlmLTQzODctYjExYi04MTY4Nzk2NzA0YjEiLCJpZCI6NTEyNjIzLCJzdWIiOiJrb3RhODA4OCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiLlroflrpnjg57jg4Pjg5fnlKgiLCJpYXQiOjE3OTUxNDY2NDV9.ISQO_VX5rw02TFzQm_HEkUgV5HgJdeQ48ogXJVMsqL8",
 
-      // 使用するCesium ionアセット
-      assets: {
-        earth: 2275207, // Google Photorealistic 3D Tiles Mesh
-        moon: 2684829,  // Cesium Moon 3D Tiles
-        mars: 3644333   // Cesium Mars 3D Tiles
+    assets: {
+      earth: 2275207,
+      moon: 2684829,
+      mars: 3644333
+    }
+  };
+
+  const BODY_NAMES = {
+    earth: "地球",
+    moon: "月",
+    mars: "火星"
+  };
+
+  const BODY_DATA_NAMES = {
+    earth: "Google Photorealistic 3D Tiles",
+    moon: "Cesium Moon 3D Tiles",
+    mars: "Cesium Mars 3D Tiles"
+  };
+
+  const EARTH_LANDMARKS = [
+    { name: "東京", lon: 139.6917, lat: 35.6895, height: 80000 },
+    { name: "エッフェル塔", lon: 2.2945, lat: 48.8584, height: 12000 },
+    { name: "自由の女神", lon: -74.0445, lat: 40.6892, height: 15000 }
+  ];
+
+  const $ = (id) => document.getElementById(id);
+
+  let viewer = null;
+  let activeBody = "earth";
+  let currentTileset = null;
+  let loadGeneration = 0;
+
+  function setStatus(message) {
+    $("status").textContent = message;
+  }
+
+  function tokenIsConfigured() {
+    const token = CONFIG.ionToken.trim();
+    return token.length > 0 && !token.includes("PASTE_YOUR");
+  }
+
+  function updateBodyButtons() {
+    document.querySelectorAll("[data-body]").forEach((button) => {
+      button.classList.toggle(
+        "selected",
+        button.dataset.body === activeBody
+      );
+    });
+
+    $("landmarks").hidden = activeBody !== "earth";
+  }
+
+  function removeCurrentTileset() {
+    const tileset = currentTileset;
+    currentTileset = null;
+
+    if (
+      tileset &&
+      viewer &&
+      !tileset.isDestroyed()
+    ) {
+      viewer.scene.primitives.remove(tileset);
+    }
+  }
+
+  function showEarthView() {
+    if (!viewer) return;
+
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(139.7, 35.7, 80000),
+      orientation: {
+        heading: Cesium.Math.toRadians(0),
+        pitch: Cesium.Math.toRadians(-45),
+        roll: 0
+      },
+      duration: 1.5
+    });
+  }
+
+  function focusTileset(tileset) {
+    const sphere = tileset?.boundingSphere;
+
+    if (!sphere || !Number.isFinite(sphere.radius)) return;
+
+    viewer.camera.flyToBoundingSphere(sphere, {
+      duration: 1.5,
+      offset: new Cesium.HeadingPitchRange(
+        0,
+        Cesium.Math.toRadians(-30),
+        Math.max(sphere.radius * 2.5, 1000)
+      )
+    });
+  }
+
+  function goHome() {
+    if (!viewer) return;
+
+    if (activeBody === "earth") {
+      showEarthView();
+    } else if (currentTileset) {
+      focusTileset(currentTileset);
+    }
+  }
+
+  function addLandmarkButtons() {
+    const container = $("landmarks");
+    container.replaceChildren();
+
+    for (const place of EARTH_LANDMARKS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = place.name;
+
+      button.addEventListener("click", () => {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(
+            place.lon,
+            place.lat,
+            place.height
+          ),
+          orientation: {
+            heading: Cesium.Math.toRadians(0),
+            pitch: Cesium.Math.toRadians(-45),
+            roll: 0
+          },
+          duration: 1.5
+        });
+      });
+
+      container.appendChild(button);
+    }
+  }
+
+  function renderInfo(state = "読み込み中") {
+    $("infoContent").textContent =
+      `天体: ${BODY_NAMES[activeBody]}。` +
+      `データ: ${BODY_DATA_NAMES[activeBody]}。` +
+      `Asset ID: ${CONFIG.assets[activeBody]}。` +
+      `状態: ${state}。`;
+  }
+
+  async function loadActiveTileset() {
+    const requestId = ++loadGeneration;
+    const body = activeBody;
+
+    removeCurrentTileset();
+    updateBodyButtons();
+
+    // 月・火星のタイルセットを表示するときは、地球の楕円体を隠す。
+    viewer.scene.globe.show = body === "earth";
+    renderInfo();
+
+    if (!tokenIsConfigured()) {
+      setStatus("Cesium ionトークンを設定してください。");
+      renderInfo("トークン未設定");
+      return;
+    }
+
+    const assetId = CONFIG.assets[body];
+    const dataName = BODY_DATA_NAMES[body];
+
+    if (!Number.isInteger(assetId) || assetId <= 0) {
+      setStatus(`${dataName}のAsset IDが正しくありません。`);
+      renderInfo("Asset ID不正");
+      return;
+    }
+
+    setStatus(`${dataName}を読み込み中…`);
+
+    try {
+      const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
+
+      // 読み込み中に別の天体へ切り替わった場合、古い結果を表示しない。
+      if (requestId !== loadGeneration) {
+        if (!tileset.isDestroyed()) tileset.destroy();
+        return;
       }
-    };
 
-    const BODY_NAMES = {
-      earth: "地球",
-      moon: "月",
-      mars: "火星"
-    };
+      tileset.maximumScreenSpaceError = 4;
+      viewer.scene.primitives.add(tileset);
+      currentTileset = tileset;
 
-    const BODY_DATA_NAMES = {
-      earth: "Google Photorealistic 3D Tiles",
-      moon: "Cesium Moon 3D Tiles",
-      mars: "Cesium Mars 3D Tiles"
-    };
+      setStatus(`${dataName}を読み込みました。`);
+      renderInfo("読み込み完了");
 
-    const EARTH_LANDMARKS = [
-      { name: "東京", lon: 139.6917, lat: 35.6895, height: 80000 },
-      { name: "エッフェル塔", lon: 2.2945, lat: 48.8584, height: 12000 },
-      { name: "自由の女神", lon: -74.0445, lat: 40.6892, height: 15000 }
-    ];
-
-    const $ = (id) => document.getElementById(id);
-
-    let viewer = null;
-    let activeBody = "earth";
-    let currentTileset = null;
-    let loadGeneration = 0;
-
-    function setStatus(message) {
-      $("status").textContent = message;
-    }
-
-    function tokenIsConfigured() {
-      return CONFIG.ionToken &&
-        !CONFIG.ionToken.includes("PASTE_YOUR");
-    }
-
-    function updateBodyButtons() {
-      document.querySelectorAll("[data-body]").forEach((button) => {
-        button.classList.toggle(
-          "selected",
-          button.dataset.body === activeBody
-        );
-      });
-
-      // 名所ボタンは地球を選択しているときだけ表示
-      $("landmarks").hidden = activeBody !== "earth";
-    }
-
-    function removeCurrentTileset() {
-      if (!currentTileset) return;
-
-      if (!currentTileset.isDestroyed()) {
-        viewer.scene.primitives.remove(currentTileset);
-      }
-
-      currentTileset = null;
-    }
-
-    function showEarthView() {
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          139.7,
-          35.7,
-          80000
-        ),
-        orientation: {
-          heading: Cesium.Math.toRadians(0),
-          pitch: Cesium.Math.toRadians(-45),
-          roll: 0
-        },
-        duration: 1.5
-      });
-    }
-
-    function focusTileset(tileset) {
-      const sphere = tileset.boundingSphere;
-
-      if (!sphere || !Number.isFinite(sphere.radius)) return;
-
-      viewer.camera.flyToBoundingSphere(sphere, {
-        duration: 1.5,
-        offset: new Cesium.HeadingPitchRange(
-          0,
-          Cesium.Math.toRadians(-30),
-          Math.max(sphere.radius * 2.5, 1000)
-        )
-      });
-    }
-
-    function goHome() {
-      if (activeBody === "earth") {
+      if (body === "earth") {
         showEarthView();
-      } else if (currentTileset) {
-        focusTileset(currentTileset);
+      } else {
+        focusTileset(tileset);
       }
+    } catch (error) {
+      if (requestId !== loadGeneration) return;
+
+      console.error(`${dataName}の読み込みエラー:`, error);
+
+      // 読み込み失敗時に画面が真っ暗にならないよう、地球儀を戻す。
+      viewer.scene.globe.show = true;
+
+      setStatus(
+        `${dataName}を読み込めません。トークン、Asset ID、` +
+        `ion側のアセットアクセス権を確認してください。`
+      );
+      renderInfo("読み込み失敗");
     }
+  }
 
-    function addLandmarkButtons() {
-      const container = $("landmarks");
+  function setupControls() {
+    document.querySelectorAll("[data-body]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const body = button.dataset.body;
 
-      for (const place of EARTH_LANDMARKS) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = place.name;
+        if (!Object.hasOwn(BODY_NAMES, body)) return;
 
-        button.addEventListener("click", () => {
-          viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(
-              place.lon,
-              place.lat,
-              place.height
-            ),
-            orientation: {
-              heading: Cesium.Math.toRadians(0),
-              pitch: Cesium.Math.toRadians(-45),
-              roll: 0
-            },
-            duration: 1.5
-          });
-        });
+        activeBody = body;
+        loadActiveTileset();
+      });
+    });
 
-        container.appendChild(button);
-      }
-    }
+    $("homeButton").addEventListener("click", goHome);
 
-    function renderInfo(state = "読み込み中") {
-      $("infoContent").textContent =
-        `天体: ${BODY_NAMES[activeBody]}。` +
-        `データ: ${BODY_DATA_NAMES[activeBody]}。` +
-        `Asset ID: ${CONFIG.assets[activeBody]}。` +
-        `状態: ${state}。`;
-    }
-
-    async function loadActiveTileset() {
-      const requestId = ++loadGeneration;
-
-      removeCurrentTileset();
-      updateBodyButtons();
-
-      // 地球だけCesiumの地球儀を表示。
-      // 月と火星では地球の地球儀を隠し、選択したタイルセットを表示します。
-      viewer.scene.globe.show = activeBody === "earth";
-
+    $("infoButton").addEventListener("click", () => {
+      $("infoPanel").hidden = !$("infoPanel").hidden;
       renderInfo();
+    });
 
-      if (!tokenIsConfigured()) {
-        setStatus(
-          "3Dデータの読み込みにはCesium ionトークンが必要です。"
-        );
-        return;
-      }
+    $("closeInfo").addEventListener("click", () => {
+      $("infoPanel").hidden = true;
+    });
+  }
 
-      const body = activeBody;
-      const assetId = CONFIG.assets[body];
-      const dataName = BODY_DATA_NAMES[body];
-
-      setStatus(`${dataName}を読み込み中…`);
-
-      try {
-        const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
-
-        // 読み込み中に別の天体へ切り替わっていたら、古い結果を破棄
-        if (requestId !== loadGeneration) {
-          tileset.destroy();
-          return;
-        }
-
-        currentTileset = tileset;
-        tileset.maximumScreenSpaceError = 4;
-        viewer.scene.primitives.add(tileset);
-
-        setStatus(`${dataName}を読み込みました。`);
-        renderInfo("読み込み完了");
-
-        if (body === "earth") {
-          showEarthView();
-        } else {
-          focusTileset(tileset);
-        }
-      } catch (error) {
-        if (requestId !== loadGeneration) return;
-
-        console.error(`${dataName}の読み込みエラー:`, error);
-
-        setStatus(
-          `${dataName}を読み込めません。ionトークン、アセットID、利用権限を確認してください。`
-        );
-
-        renderInfo("読み込み失敗");
-      }
+  function start() {
+    if (!window.Cesium) {
+      setStatus("CesiumJSを読み込めません。ネット接続を確認してください。");
+      return;
     }
 
-    function setupControls() {
-      document.querySelectorAll("[data-body]").forEach((button) => {
-        button.addEventListener("click", () => {
-          activeBody = button.dataset.body;
-          loadActiveTileset();
-        });
-      });
-
-      $("homeButton").addEventListener("click", goHome);
-
-      $("infoButton").addEventListener("click", () => {
-        $("infoPanel").hidden = !$("infoPanel").hidden;
-        renderInfo();
-      });
-
-      $("closeInfo").addEventListener("click", () => {
-        $("infoPanel").hidden = true;
-      });
+    if (tokenIsConfigured()) {
+      Cesium.Ion.defaultAccessToken = CONFIG.ionToken.trim();
     }
 
-    function start() {
-      if (!window.Cesium) {
-        setStatus("CesiumJSを読み込めません。ネット接続を確認してください。");
-        return;
-      }
-
-      if (tokenIsConfigured()) {
-        Cesium.Ion.defaultAccessToken = CONFIG.ionToken;
-      }
-
+    try {
       viewer = new Cesium.Viewer("cesiumContainer", {
         baseLayer: false,
         terrainProvider: new Cesium.EllipsoidTerrainProvider(),
@@ -445,21 +457,25 @@
         infoBox: false,
         selectionIndicator: false
       });
-
-      viewer.scene.globe.show = true;
-      viewer.scene.globe.baseColor =
-        Cesium.Color.fromCssColorString("#101722");
-
-      viewer.scene.screenSpaceCameraController.enableCollisionDetection = false;
-
-      addLandmarkButtons();
-      setupControls();
-      updateBodyButtons();
-      showEarthView();
-      loadActiveTileset();
+    } catch (error) {
+      console.error("Cesium Viewerの初期化エラー:", error);
+      setStatus("Cesium Viewerを初期化できませんでした。");
+      return;
     }
 
-    start();
-  </script>
+    viewer.scene.globe.show = true;
+    viewer.scene.globe.baseColor =
+      Cesium.Color.fromCssColorString("#101722");
+    viewer.scene.screenSpaceCameraController.enableCollisionDetection = false;
+
+    addLandmarkButtons();
+    setupControls();
+    updateBodyButtons();
+    showEarthView();
+    loadActiveTileset();
+  }
+
+  start();
+</script>
 </body>
 </html>
