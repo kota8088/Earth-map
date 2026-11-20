@@ -114,7 +114,7 @@
       z-index: 6;
       left: 12px;
       bottom: 18px;
-      max-width: min(720px, calc(100vw - 24px));
+      max-width: min(760px, calc(100vw - 24px));
       padding: 9px 12px;
       border: 1px solid var(--line);
       border-radius: 9px;
@@ -192,7 +192,7 @@
     </nav>
 
     <div class="button-row top-actions">
-      <button type="button" id="homeButton">天体全体へ</button>
+      <button type="button" id="homeButton">全体表示</button>
       <button type="button" id="infoButton">データ情報</button>
     </div>
   </header>
@@ -220,14 +220,14 @@
       // 自分のCesium ionトークンに置き換えてください。
       ionToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IkswWDFiMmx5U0pvQXNiaDIiLCJqdGkiOiI3Yjg5YzUwZC02NTlmLTQzODctYjExYi04MTY4Nzk2NzA0YjEiLCJpZCI6NTEyNjIzLCJzdWIiOiJrb3RhODA4OCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiLlroflrpnjg57jg4Pjg5fnlKgiLCJpYXQiOjE3OTUxMzAzMjZ9.UCtms3W599MMOAhQUHoufqFIV8h8718ranR3wF1K4l0",
 
-      // ご提示のCesium ion 3D TilesアセットID
+      // ご提示のCesium ion 3D Tilesアセット
       assets: {
         earth: 2275207, // Google Photorealistic 3D Tiles
         moon: 2684829,  // Cesium Moon
         mars: 3644333   // Cesium Mars
       },
 
-      // カメラ位置計算に使う半径。実際のデータ座標系と合うかは要確認。
+      // 名所へのカメラ移動用。アセットの座標系と異なる場合は調整してください。
       ellipsoidRadii: {
         earth: [6378137, 6378137, 6356752.314245],
         moon:  [1737400, 1737400, 1737400],
@@ -236,18 +236,9 @@
     };
 
     const BODIES = {
-      earth: {
-        label: "地球",
-        home: [139.7, 35.7, 18000000]
-      },
-      moon: {
-        label: "月",
-        home: [0, 0, 6500000]
-      },
-      mars: {
-        label: "火星",
-        home: [0, 0, 12000000]
-      }
+      earth: { label: "地球" },
+      moon:  { label: "月" },
+      mars:  { label: "火星" }
     };
 
     const LANDMARKS = [
@@ -346,34 +337,60 @@
       try {
         viewer.scene.primitives.remove(currentTileset);
       } catch (error) {
-        console.warn("3D Tilesの削除時に警告が発生しました:", error);
+        console.warn("3D Tiles削除時の警告:", error);
       }
 
       currentTileset = null;
     }
 
-    function setCameraHome(duration = 1.5) {
-      const body = BODIES[activeBody];
+    function focusTileset(tileset, duration = 1.5) {
+      const sphere = tileset.boundingSphere;
 
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          body.home[0],
-          body.home[1],
-          body.home[2],
-          ellipsoidFor(activeBody)
-        ),
-        duration
+      if (!sphere || !Number.isFinite(sphere.radius)) {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(0, 0, 15000000),
+          duration
+        });
+        return;
+      }
+
+      const range = Math.max(sphere.radius * 2.5, 1000);
+
+      viewer.camera.flyToBoundingSphere(sphere, {
+        duration,
+        offset: new Cesium.HeadingPitchRange(
+          0,
+          Cesium.Math.toRadians(-35),
+          range
+        )
       });
+    }
+
+    function focusHome() {
+      if (currentTileset) {
+        focusTileset(currentTileset);
+      } else {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(0, 0, 15000000),
+          duration: 1.2
+        });
+      }
     }
 
     async function loadBodyTiles(body, requestGeneration) {
       removeCurrentTileset();
 
+      /*
+       * CesiumJS 1.127の globe.ellipsoid は読み取り専用なので変更しません。
+       * 地球以外では地球Globeを隠し、ionのタイルセットを表示します。
+       */
+      viewer.scene.globe.show = body === "earth";
+
       if (tokenIsMissing()) {
         setStatus(
           "Cesium ionトークンが未設定です。CONFIG.ionTokenを設定してください。"
         );
-        renderInfo();
+        renderInfo("トークン未設定");
         return;
       }
 
@@ -393,25 +410,28 @@
         tileset.maximumScreenSpaceError = 16;
         viewer.scene.primitives.add(tileset);
 
+        renderInfo("読み込み完了");
         setStatus(
-          `${BODIES[body].label}: Cesium ion 3D Tilesを読み込みました。`
+          `${BODIES[body].label}: ion 3D Tilesを読み込みました。`
         );
-        renderInfo();
+
+        focusTileset(tileset);
       } catch (error) {
         if (requestGeneration !== generation) return;
 
         console.error(error);
+
         const message = String(error.message || error);
         const authError = /401|403/.test(message);
 
+        renderInfo("読み込み失敗");
         setStatus(
           `${BODIES[body].label}: 3D Tilesを読み込めません。` +
           (authError
-            ? "トークン、アセットの利用権限、ドメイン制限を確認してください。"
-            : "通信状態とionアセットの設定を確認してください。") +
+            ? "トークン、アセット権限、ドメイン制限を確認してください。"
+            : "通信状態とionアセット設定を確認してください。") +
           ` (${message})`
         );
-        renderInfo("読み込み失敗");
       }
     }
 
@@ -431,13 +451,15 @@
     }
 
     function goToLandmark(landmark) {
+      const destination = Cesium.Cartesian3.fromDegrees(
+        normalizeLongitude(landmark.lon),
+        landmark.lat,
+        landmark.height,
+        ellipsoidFor(landmark.body)
+      );
+
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          normalizeLongitude(landmark.lon),
-          landmark.lat,
-          landmark.height,
-          ellipsoidFor(landmark.body)
-        ),
+        destination,
         orientation: {
           heading: Cesium.Math.toRadians(15),
           pitch: Cesium.Math.toRadians(-45),
@@ -447,12 +469,10 @@
       });
     }
 
-    function renderInfo(loadState = "3D Tiles") {
-      const body = BODIES[activeBody];
-
+    function renderInfo(loadState = "未読み込み") {
       $("infoContent").innerHTML = `
         <div class="panel-row">
-          <strong>${body.label}</strong>
+          <strong>${BODIES[activeBody].label}</strong>
         </div>
         <div class="panel-row">
           ion Asset ID: ${CONFIG.assets[activeBody]}<br>
@@ -460,13 +480,17 @@
           読み込み状態: ${loadState}
         </div>
         <div class="panel-row">
-          3D Tilesは画像レイヤーではなく、タイル状に配信される3Dデータです。
-          このコードではCesium ionから取得したタイルセットを表示しています。
+          地球は地球Globeを表示し、月・火星は地球Globeを隠して
+          それぞれのionタイルセットを表示します。
         </div>
         <div class="panel-row">
-          カメラ位置や月・火星の座標がデータの座標系と合わない場合、
-          タイルセットが見えないことがあります。ionのアセット詳細で
-          範囲と座標系も確認してください。
+          名所への移動位置は一般的な経緯度による目安です。
+          アセット固有の座標系と一致しない場合、名所ボタンの位置は
+          正確にならないことがあります。
+        </div>
+        <div class="panel-row">
+          3D Tilesの表示範囲はアセットの内容と利用権限に依存します。
+          トークンはion側で利用ドメインを制限してください。
         </div>
       `;
     }
@@ -484,13 +508,9 @@
         );
       });
 
-      viewer.scene.globe.ellipsoid = ellipsoidFor(body);
-
       renderLandmarks();
       renderInfo("読み込み中");
 
-      // 先にカメラを切り替え、対象のionアセットを読み込む。
-      setCameraHome();
       loadBodyTiles(body, generation);
     }
 
@@ -501,9 +521,7 @@
         });
       });
 
-      $("homeButton").addEventListener("click", () => {
-        setCameraHome();
-      });
+      $("homeButton").addEventListener("click", focusHome);
 
       $("infoButton").addEventListener("click", () => {
         $("infoPanel").hidden = !$("infoPanel").hidden;
@@ -534,13 +552,15 @@
         shouldAnimate: true
       });
 
-      viewer.scene.globe.ellipsoid = ellipsoidFor(activeBody);
+      // ここではellipsoidを代入しない。
+      viewer.scene.globe.show = true;
       viewer.scene.globe.baseColor =
         Cesium.Color.fromCssColorString("#101722");
-      viewer.scene.globe.enableLighting = false;
       viewer.scene.screenSpaceCameraController.enableCollisionDetection = false;
 
-      setCameraHome(0);
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(0, 0, 20000000)
+      });
     }
 
     function start() {
