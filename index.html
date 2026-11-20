@@ -25,13 +25,9 @@
       --accent: #76baff;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
-    html,
-    body,
-    #cesiumContainer {
+    html, body, #cesiumContainer {
       width: 100%;
       height: 100%;
       margin: 0;
@@ -55,6 +51,7 @@
       inset: 0 0 auto;
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 8px 16px;
       min-height: 56px;
       padding: 8px 14px;
@@ -65,17 +62,19 @@
     .brand {
       font-weight: 800;
       letter-spacing: .12em;
+      white-space: nowrap;
     }
 
-    .brand span {
-      color: var(--accent);
-    }
+    .brand span { color: var(--accent); }
 
-    .top-actions {
+    .button-row {
       display: flex;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 7px;
-      margin-left: auto;
     }
+
+    .top-actions { margin-left: auto; }
 
     button {
       color: var(--text);
@@ -87,8 +86,13 @@
       white-space: nowrap;
     }
 
-    button:hover {
-      border-color: rgba(118, 186, 255, .75);
+    button:hover { border-color: rgba(118, 186, 255, .75); }
+
+    button.selected {
+      color: #07111e;
+      background: var(--accent);
+      border-color: var(--accent);
+      font-weight: 700;
     }
 
     .landmarks {
@@ -104,9 +108,7 @@
       background: rgba(7, 12, 21, .78);
     }
 
-    .landmarks button {
-      flex: 0 0 auto;
-    }
+    .landmarks button { flex: 0 0 auto; }
 
     .status {
       position: absolute;
@@ -125,7 +127,7 @@
     .panel {
       position: absolute;
       z-index: 8;
-      top: 115px;
+      top: 120px;
       right: 12px;
       width: min(380px, calc(100vw - 24px));
       padding: 14px;
@@ -135,9 +137,7 @@
       box-shadow: 0 14px 45px rgba(0, 0, 0, .35);
     }
 
-    .panel[hidden] {
-      display: none;
-    }
+    .panel[hidden] { display: none; }
 
     .panel-heading {
       display: flex;
@@ -155,21 +155,15 @@
 
     @media (max-width: 700px) {
       .topbar {
+        gap: 7px;
         padding: 6px 8px;
       }
 
-      .brand {
-        font-size: 12px;
-      }
-
-      .top-actions button {
-        padding: 6px 8px;
-        font-size: 12px;
-      }
-
-      .landmarks {
-        top: 50px;
-      }
+      .brand { font-size: 12px; }
+      .top-actions { margin-left: 0; }
+      .topbar button { padding: 6px 8px; font-size: 12px; }
+      .landmarks { top: 100px; }
+      .panel { top: 145px; }
     }
   </style>
 </head>
@@ -178,7 +172,12 @@
   <header class="topbar">
     <div class="brand">EARTH <span>EXPLORER</span></div>
 
-    <div class="top-actions">
+    <nav class="button-row" aria-label="地球データ">
+      <button type="button" data-layer="osm" class="selected">OSM建物</button>
+      <button type="button" data-layer="google">Google 3D</button>
+    </nav>
+
+    <div class="button-row top-actions">
       <button type="button" id="homeButton">全体表示</button>
       <button type="button" id="infoButton">データ情報</button>
     </div>
@@ -199,33 +198,43 @@
   <script>
     "use strict";
 
-    // 地球上の名所。heightはカメラの高度（メートル）です。
-    const LANDMARKS = [
-      {
-        name: "東京タワー",
-        lon: 139.7454,
-        lat: 35.6586,
-        height: 3500
+    const CONFIG = {
+      // Cesium ionのトークンに置き換えてください。
+      ionToken: "PASTE_YOUR_CESIUM_ION_TOKEN_HERE",
+
+      // このページで使う地球のアセット
+      earthAssets: {
+        osmBuildings: 96188,
+        googlePhotorealistic: 2275207
       },
-      {
-        name: "エッフェル塔",
-        lon: 2.2945,
-        lat: 48.8584,
-        height: 3500
-      },
-      {
-        name: "自由の女神",
-        lon: -74.0445,
-        lat: 40.6892,
-        height: 4500
+
+      // 月・火星は別サイト用。このページでは読み込みません。
+      otherAssets: {
+        moon: 2684829,
+        mars: 3644333
       }
+    };
+
+    const LANDMARKS = [
+      { name: "東京タワー", lon: 139.7454, lat: 35.6586, height: 3500 },
+      { name: "エッフェル塔", lon: 2.2945, lat: 48.8584, height: 3500 },
+      { name: "自由の女神", lon: -74.0445, lat: 40.6892, height: 4500 }
     ];
 
     const $ = (id) => document.getElementById(id);
-    let viewer;
+
+    let viewer = null;
+    let currentTileset = null;
+    let activeLayer = "osm";
+    let loadGeneration = 0;
 
     function setStatus(message) {
       $("status").textContent = message;
+    }
+
+    function tokenIsConfigured() {
+      return CONFIG.ionToken &&
+        !CONFIG.ionToken.includes("PASTE_YOUR");
     }
 
     function goHome() {
@@ -263,8 +272,96 @@
       }
     }
 
+    function removeCurrentTileset() {
+      if (!currentTileset) return;
+
+      if (!currentTileset.isDestroyed()) {
+        viewer.scene.primitives.remove(currentTileset);
+      }
+
+      currentTileset = null;
+    }
+
+    async function loadTileset(layer) {
+      activeLayer = layer;
+      const requestId = ++loadGeneration;
+
+      removeCurrentTileset();
+      updateLayerButtons();
+
+      if (!tokenIsConfigured()) {
+        setStatus(
+          "衛星画像は表示中です。3DデータにはCesium ionトークンが必要です。"
+        );
+        return;
+      }
+
+      const assetId = layer === "osm"
+        ? CONFIG.earthAssets.osmBuildings
+        : CONFIG.earthAssets.googlePhotorealistic;
+
+      const layerName = layer === "osm"
+        ? "Cesium OSM Buildings"
+        : "Google Photorealistic 3D Tiles";
+
+      setStatus(`${layerName}を読み込み中…`);
+
+      try {
+        const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
+
+        // 読み込み中に別のデータへ切り替わっていたら、古い結果を破棄。
+        if (requestId !== loadGeneration) {
+          tileset.destroy();
+          return;
+        }
+
+        currentTileset = tileset;
+        tileset.maximumScreenSpaceError = 2;
+        viewer.scene.primitives.add(tileset);
+
+        setStatus(
+          `${layerName}を読み込みました。建物を見るには都市部までズームしてください。`
+        );
+
+        renderInfo();
+      } catch (error) {
+        if (requestId !== loadGeneration) return;
+
+        console.error(`${layerName}の読み込みエラー:`, error);
+
+        setStatus(
+          `${layerName}を読み込めません。ionトークンとアセットへのアクセス権を確認してください。`
+        );
+
+        renderInfo(`読み込み失敗（Asset ID: ${assetId}）`);
+      }
+    }
+
+    function updateLayerButtons() {
+      document.querySelectorAll("[data-layer]").forEach((button) => {
+        button.classList.toggle(
+          "selected",
+          button.dataset.layer === activeLayer
+        );
+      });
+    }
+
+    function renderInfo(loadState = "表示中") {
+      const layerName = activeLayer === "osm"
+        ? "Cesium OSM Buildings"
+        : "Google Photorealistic 3D Tiles";
+
+      const assetId = activeLayer === "osm"
+        ? CONFIG.earthAssets.osmBuildings
+        : CONFIG.earthAssets.googlePhotorealistic;
+
+      $("infoContent").textContent =
+        `選択中: ${layerName} / Asset ID: ${assetId}。` +
+        `衛星画像: Esri World Imagery。読み込み状態: ${loadState}。` +
+        `月（${CONFIG.otherAssets.moon}）・火星（${CONFIG.otherAssets.mars}）はこのページでは使用しません。`;
+    }
+
     function addSatelliteImagery() {
-      // Esriの衛星画像タイル。Cesium ionは使用しません。
       const imageryProvider = new Cesium.UrlTemplateImageryProvider({
         url:
           "https://server.arcgisonline.com/ArcGIS/rest/services/" +
@@ -274,34 +371,32 @@
         credit: "Tiles © Esri"
       });
 
-      // タイル取得に失敗した場合は、コンソールと画面に知らせます。
       imageryProvider.errorEvent.addEventListener((error) => {
-        console.error("衛星画像タイルの読み込みエラー:", error);
-        setStatus(
-          "衛星画像を読み込めません。ネット接続やブラウザーの通信エラーを確認してください。"
-        );
+        console.error("衛星画像の読み込みエラー:", error);
+        setStatus("衛星画像を読み込めません。ネット接続を確認してください。");
       });
 
       viewer.imageryLayers.removeAll();
       viewer.imageryLayers.addImageryProvider(imageryProvider);
-
-      setStatus("地球の衛星画像を読み込み中…");
     }
 
     function setupControls() {
+      document.querySelectorAll("[data-layer]").forEach((button) => {
+        button.addEventListener("click", () => {
+          loadTileset(button.dataset.layer);
+        });
+      });
+
       $("homeButton").addEventListener("click", goHome);
 
       $("infoButton").addEventListener("click", () => {
         $("infoPanel").hidden = !$("infoPanel").hidden;
+        renderInfo();
       });
 
       $("closeInfo").addEventListener("click", () => {
         $("infoPanel").hidden = true;
       });
-
-      $("infoContent").textContent =
-        "画像: Esri World Imagery。地形: Cesium楕円体。" +
-        "Cesium ionおよびionトークンは使用していません。";
     }
 
     function start() {
@@ -310,11 +405,13 @@
         return;
       }
 
+      if (tokenIsConfigured()) {
+        Cesium.Ion.defaultAccessToken = CONFIG.ionToken;
+      }
+
       viewer = new Cesium.Viewer("cesiumContainer", {
-        // Cesium標準の背景画像・地形を使わず、下で衛星画像を追加します。
         baseLayer: false,
         terrainProvider: new Cesium.EllipsoidTerrainProvider(),
-
         animation: false,
         timeline: false,
         geocoder: false,
@@ -327,18 +424,19 @@
         selectionIndicator: false
       });
 
-      // 球体に衛星画像を貼り付けます。
       viewer.scene.globe.show = true;
       viewer.scene.globe.baseColor =
         Cesium.Color.fromCssColorString("#101722");
-
-      // 地表近くまでカメラで移動できるようにします。
       viewer.scene.screenSpaceCameraController.enableCollisionDetection = false;
 
       addSatelliteImagery();
       addLandmarkButtons();
       setupControls();
+      renderInfo();
       goHome();
+
+      // 初期表示ではOSM建物を読み込みます。
+      loadTileset("osm");
     }
 
     start();
