@@ -1,1 +1,1 @@
-# universe-map
+# Earth-map

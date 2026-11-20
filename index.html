@@ -273,11 +273,25 @@
         selectionIndicator: false
       });
 
-      // 球体に地図画像を貼る。元のコードに無かったのはこの部分です。
-      const osmImagery = new Cesium.UrlTemplateImageryProvider({
-        url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-        credit: "© OpenStreetMap contributors"
-      });
+     // 地図画像を追加
+const imageryProvider = new Cesium.UrlTemplateImageryProvider({
+  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  tilingScheme: new Cesium.WebMercatorTilingScheme(),
+  maximumLevel: 19,
+  credit: "Tiles © Esri"
+});
+
+imageryProvider.errorEvent.addEventListener((error) => {
+  console.error("地図画像の読み込みエラー:", error);
+  setStatus("地図画像を読み込めません。ネット接続やブラウザーの開発者ツールを確認してください。");
+});
+
+viewer.imageryLayers.removeAll();
+viewer.imageryLayers.addImageryProvider(imageryProvider);
+
+viewer.scene.globe.show = true;
+viewer.scene.globe.baseColor =
+  Cesium.Color.fromCssColorString("#101722");
 
       viewer.imageryLayers.addImageryProvider(osmImagery);
       viewer.scene.globe.show = true;
