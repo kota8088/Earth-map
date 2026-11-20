@@ -1,755 +1,946 @@
 "use strict";
 
 /*
- * 公開クライアント設定。ここにサーバー秘密鍵を置かないでください。
- * ionトークンはブラウザから閲覧可能です。ion側で利用制限を設定してください。
+ * 設定を一か所に集約。
+ * ionトークンはブラウザに配布されます。読み取り専用・対象アセット限定など
+ * 最小権限のトークンを使用し、秘密鍵を設定しないでください。
  */
 const CONFIG = {
-  CESIUM_ION_TOKEN: "PASTE_RESTRICTED_CESIUM_ION_TOKEN_HERE",
-
-  // ユーザー指定のID。IDからアセット種別は推測しません。
-  MOON_ION_ASSET_ID: 2684829,
-  MARS_ION_ASSET_ID: 3644333,
-
-  // Google Cloudで有効化・課金設定したブラウザ公開キーを設定。
-  GOOGLE_MAPS_API_KEY: "",
-
-  // 本番アプリでは利用規約・レート制限を確認した検索サービスに置き換えてください。
-  NOMINATIM_URL: "https://nominatim.openstreetmap.org/search"
-};
-
-const STORAGE = {
-  pins: "cosmic-atlas.pins.v1",
-  history: "cosmic-atlas.history.v1",
-  searches: "cosmic-atlas.searches.v1",
-  historyEnabled: "cosmic-atlas.historyEnabled.v1"
-};
-
-const BODIES = {
-  earth: {
-    label: "地球",
-    ellipsoid: Cesium.Ellipsoid.WGS84,
-    home: [0, 20, 20000000]
+  cesiumVersion: "1.127.0",
+  ionToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IkswWDFiMmx5U0pvQXNiaDIiLCJqdGkiOiI3Yjg5YzUwZC02NTlmLTQzODctYjExYi04MTY4Nzk2NzA0YjEiLCJpZCI6NTEyNjIzLCJzdWIiOiJrb3RhODA4OCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiLlroflrpnjg57jg4Pjg5fnlKgiLCJpYXQiOjE3OTUxMzAzMjZ9.UCtms3W599MMOAhQUHoufqFIV8h8718ranR3wF1K4l0", // Cesium ionの公開クライアント用トークンを設定
+  assets: {
+    earth: 2275207,
+    moon: 2684829,
+    mars: 3644333
   },
-  moon: {
-    label: "月",
-    ellipsoid: new Cesium.Ellipsoid(1737400, 1737400, 1737400),
-    home: [0, 0, 5200000]
+  nominatimUrl: "https://nominatim.openstreetmap.org",
+  usgsUrl: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson",
+  openMeteoAirUrl: "https://air-quality-api.open-meteo.com/v1/air-quality",
+  dataFiles: {
+    moon: "./data/lunar-gazetteer.geojson",
+    mars: "./data/mars-gazetteer.geojson",
+    panoramas: "./data/panoramas.json",
+    indoor: "./data/indoor-facilities.json"
   },
-  mars: {
-    label: "火星",
-    ellipsoid: new Cesium.Ellipsoid(3396190, 3396190, 3376200),
-    home: [0, 0, 10000000]
+  ellipsoids: {
+    earth: new Cesium.Ellipsoid(6378137, 6378137, 6356752.314245),
+    moon: new Cesium.Ellipsoid(1737400, 1737400, 1737400),
+    mars: new Cesium.Ellipsoid(3396190, 3396190, 3376200)
+  },
+  homes: {
+    earth: { lon: 0, lat: 15, height: 24000000 },
+    moon: { lon: 0, lat: 0, height: 9000000 },
+    mars: { lon: 0, lat: 10, height: 16000000 }
   }
 };
-
-// Representative local names only; not a complete gazetteer.
-// Coordinates refer to commonly published approximate feature locations.
-const LOCAL_PLACES = {
-  moon: [
-    { name: "Mare Tranquillitatis", lat: 8.5, lon: 31.4, source: "USGS Gazetteer of Planetary Nomenclature" },
-    { name: "Copernicus crater", lat: 9.62, lon: -20.08, source: "USGS Gazetteer of Planetary Nomenclature" },
-    { name: "Tycho crater", lat: -43.3, lon: -11.2, source: "USGS Gazetteer of Planetary Nomenclature" }
-  ],
-  mars: [
-    { name: "Olympus Mons", lat: 18.65, lon: -133.8, source: "USGS Gazetteer of Planetary Nomenclature" },
-    { name: "Gale crater", lat: -5.4, lon: 137.8, source: "USGS Gazetteer of Planetary Nomenclature" },
-    { name: "Valles Marineris", lat: -13.9, lon: -59.2, source: "USGS Gazetteer of Planetary Nomenclature" }
-  ]
-};
-
-let viewer;
-let currentBody = "earth";
-let imageryLayer = null;
-let googleTileset = null;
-let selectedPinId = null;
-let measureMode = null;
-let measurePoints = [];
-let measureEntities = [];
-let lastHistoryKey = "";
-let toastTimer;
-let streetViewLink = null;
 
 const $ = id => document.getElementById(id);
-const read = key => {
-  try { return JSON.parse(localStorage.getItem(key) || "[]"); }
-  catch { return []; }
+const bodyNames = { earth: "地球", moon: "月", mars: "火星" };
+const state = {
+  body: "earth",
+  generation: 0,
+  tileset: null,
+  imageryLayers: [],
+  terrainProvider: null,
+  pinEntities: new Map(),
+  temporaryEntities: [],
+  quakeEntities: [],
+  osmLayer: null,
+  indoorLayer: null,
+  selectedPoint: null,
+  selectedPinId: null,
+  currentPanoramas: [],
+  panoramaViewer: null,
+  panoramaData: [],
+  indoorData: [],
+  gazetteers: { moon: [], mars: [] },
+  db: null,
+  storageMode: "IndexedDB",
+  historyEnabled: true,
+  lastGeocodeAt: 0,
+  cameraHistoryTimer: null,
+  arStream: null
 };
-const write = (key, value) => localStorage.setItem(key, JSON.stringify(value));
-const historyIsEnabled = () => localStorage.getItem(STORAGE.historyEnabled) !== "false";
 
-function toast(message) {
-  const el = $("toast");
-  el.textContent = message;
-  el.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 3500);
+if (!window.Cesium) {
+  document.body.innerHTML =
+    "<p style='padding:2rem;color:white'>CesiumJSが見つかりません。vendor/CesiumにCesiumJS 1.127.0を配置してください。</p>";
+  throw new Error("CesiumJS not loaded");
 }
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
-function bodyName(body) { return BODIES[body]?.label || body; }
-function formatCoord(n) { return Number(n).toFixed(6); }
-
-function init() {
-  if (!window.Cesium) {
-    $("layerStatus").textContent = "CesiumJSの読み込みに失敗しました。通信状態を確認してください。";
-    return;
-  }
-
-  if (CONFIG.CESIUM_ION_TOKEN &&
-      !CONFIG.CESIUM_ION_TOKEN.startsWith("PASTE_")) {
-    Cesium.Ion.defaultAccessToken = CONFIG.CESIUM_ION_TOKEN;
-  }
-
-  const ellipsoid = BODIES.earth.ellipsoid;
-  viewer = new Cesium.Viewer("cesiumContainer", {
-    animation: false,
-    timeline: false,
-    baseLayerPicker: false,
-    geocoder: false,
-    homeButton: false,
-    sceneModePicker: false,
-    navigationHelpButton: false,
-    fullscreenButton: false,
-    infoBox: false,
-    selectionIndicator: false,
-    baseLayer: false,
-    terrainProvider: new Cesium.EllipsoidTerrainProvider({ ellipsoid })
-  });
-
-  viewer.scene.globe = new Cesium.Globe(ellipsoid);
-  viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#101827");
-  viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#050913");
-  viewer.scene.requestRenderMode = false;
-
-  wireEvents();
-  renderAllLists();
-  setBody("earth");
-  viewer.camera.moveEnd.addEventListener(recordView);
+if (Cesium.VERSION !== CONFIG.cesiumVersion) {
+  console.warn(`CesiumJSの版が設定と異なります: ${Cesium.VERSION}`);
 }
 
-function wireEvents() {
-  document.querySelectorAll("[data-body]").forEach(button => {
-    button.addEventListener("click", () => setBody(button.dataset.body));
-  });
+Cesium.Ion.defaultAccessToken = CONFIG.ionToken;
 
-  $("imageryToggle").addEventListener("change", async () => {
-    if ($("imageryToggle").checked) await loadBodyImagery();
-    else removeImagery();
-  });
-  $("tilesToggle").addEventListener("change", toggleGoogleTiles);
+const viewer = new Cesium.Viewer("cesiumContainer", {
+  animation: false,
+  timeline: false,
+  baseLayerPicker: false,
+  geocoder: false,
+  homeButton: false,
+  sceneModePicker: false,
+  navigationHelpButton: false,
+  infoBox: false,
+  selectionIndicator: false,
+  shouldAnimate: false,
+  terrainProvider: new Cesium.EllipsoidTerrainProvider({
+    ellipsoid: CONFIG.ellipsoids.earth
+  })
+});
 
-  $("homeBtn").addEventListener("click", goHome);
-  $("tiltBtn").addEventListener("click", () => {
-    viewer.camera.setView({
-      orientation: { heading: viewer.camera.heading, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0 }
-    });
-  });
+viewer.scene.globe = new Cesium.Globe(CONFIG.ellipsoids.earth);
+viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#101d2e");
+viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#030812");
+viewer.camera.setView({
+  destination: Cesium.Cartesian3.fromDegrees(0, 15, CONFIG.homes.earth.height)
+});
 
-  $("searchForm").addEventListener("submit", search);
-  $("goCoordinateBtn").addEventListener("click", goToCoordinates);
-  $("distanceBtn").addEventListener("click", () => startMeasure("distance"));
-  $("areaBtn").addEventListener("click", () => startMeasure("area"));
-  $("finishMeasureBtn").addEventListener("click", finishMeasure);
-  $("clearMeasureBtn").addEventListener("click", clearMeasure);
-  $("closeInfoBtn").addEventListener("click", () => $("infoPanel").classList.add("hidden"));
-  $("streetViewBtn").addEventListener("click", () => {
-    if (streetViewLink) window.open(streetViewLink, "_blank", "noopener,noreferrer");
-  });
-  $("historyEnabled").checked = historyIsEnabled();
-  $("historyEnabled").addEventListener("change", e => {
-    localStorage.setItem(STORAGE.historyEnabled, String(e.target.checked));
-  });
-  $("clearHistoryBtn").addEventListener("click", () => {
-    if (!confirm("閲覧履歴と検索履歴をすべて削除しますか？")) return;
-    write(STORAGE.history, []);
-    write(STORAGE.searches, []);
-    renderAllLists();
-  });
+function setMessage(text) { $("mapMessage").textContent = text; }
+function setBodyStatus(text) { $("bodyStatus").textContent = text; }
 
-  const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-  handler.setInputAction(event => {
-    const cartographic = pickCartographic(event.position);
-    if (!cartographic) {
-      toast("地表位置を取得できませんでした。地図上の別の場所を選んでください。");
-      return;
-    }
-    if (measureMode) {
-      addMeasurePoint(cartographic);
-      return;
-    }
-    const coords = {
-      lat: Cesium.Math.toDegrees(cartographic.latitude),
-      lon: Cesium.Math.toDegrees(cartographic.longitude)
+function openDB() {
+  return new Promise(resolve => {
+    if (!("indexedDB" in window)) return resolve(null);
+    const request = indexedDB.open("orbit-atlas", 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("state")) db.createObjectStore("state");
     };
-    createPin(coords, "名称未設定", "");
-  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-}
-
-function pickCartographic(position) {
-  let cartesian;
-  if (viewer.scene.pickPositionSupported) {
-    cartesian = viewer.scene.pickPosition(position);
-  }
-  if (!Cesium.defined(cartesian)) {
-    cartesian = viewer.camera.pickEllipsoid(position, BODIES[currentBody].ellipsoid);
-  }
-  return Cesium.defined(cartesian)
-    ? BODIES[currentBody].ellipsoid.cartesianToCartographic(cartesian)
-    : null;
-}
-
-async function setBody(body) {
-  if (!BODIES[body]) return;
-  currentBody = body;
-  selectedPinId = null;
-
-  document.querySelectorAll("[data-body]").forEach(b =>
-    b.classList.toggle("active", b.dataset.body === body));
-
-  // Remove body-specific content rather than carrying Earth content to another body.
-  removeImagery();
-  removeGoogleTiles();
-  $("tilesToggle").checked = false;
-  $("tilesToggle").disabled = body !== "earth";
-  $("imageryToggle").checked = true;
-
-  viewer.scene.globe = new Cesium.Globe(BODIES[body].ellipsoid);
-  viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#101827");
-  viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider({
-    ellipsoid: BODIES[body].ellipsoid
-  });
-
-  clearMeasure();
-  goHome();
-  await loadBodyImagery();
-  $("layerStatus").textContent =
-    body === "earth"
-      ? "地球：画像レイヤーは未設定です。3D街並みはGoogle APIキー設定後に利用できます。"
-      : `${bodyName(body)}：指定ionアセットを画像として読み込みます。アセット種別・権限の確認が必要です。`;
-  renderPinList();
-}
-
-function goHome() {
-  const [lon, lat, height] = BODIES[currentBody].home;
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(lon, lat, height, BODIES[currentBody].ellipsoid),
-    orientation: { heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0 },
-    duration: 1.2
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
   });
 }
 
-function removeImagery() {
-  if (imageryLayer) {
-    try { viewer.imageryLayers.remove(imageryLayer, true); } catch {}
-    imageryLayer = null;
-  }
-}
-
-async function loadBodyImagery() {
-  if (!$("imageryToggle").checked) return;
-  if (currentBody === "earth") {
-    $("layerStatus").textContent =
-      "地球画像：ion画像アセットを設定すると表示できます。3D街並みは別設定です。";
-    return;
-  }
-  if (!CONFIG.CESIUM_ION_TOKEN || CONFIG.CESIUM_ION_TOKEN.startsWith("PASTE_")) {
-    $("layerStatus").textContent = "画像未表示：Cesium ionトークンを設定してください。";
-    return;
-  }
-
-  const assetId = currentBody === "moon"
-    ? CONFIG.MOON_ION_ASSET_ID
-    : CONFIG.MARS_ION_ASSET_ID;
-
+async function loadSavedState() {
+  state.db = await openDB();
+  if (!state.db) state.storageMode = "localStorage";
   try {
-    const provider = await Cesium.IonImageryProvider.fromAssetId(assetId);
-    imageryLayer = viewer.imageryLayers.addImageryProvider(provider);
-    $("layerStatus").textContent =
-      `${bodyName(currentBody)}画像を読み込みました（ion asset ${assetId}）。` +
-      "表示されない場合はアセット種別・権限・座標系を確認してください。";
-  } catch (error) {
-    $("layerStatus").textContent =
-      `画像を読み込めません（asset ${assetId}）。ionのアセット種別、アクセス権、トークンを確認してください。`;
-    console.error("Ion imagery error", error);
-  }
-}
-
-function removeGoogleTiles() {
-  if (googleTileset) {
-    viewer.scene.primitives.remove(googleTileset);
-    googleTileset = null;
-  }
-}
-async function toggleGoogleTiles() {
-  if (!$("tilesToggle").checked) {
-    removeGoogleTiles();
-    return;
-  }
-  if (currentBody !== "earth") {
-    $("tilesToggle").checked = false;
-    toast("Google Photorealistic 3D Tilesは地球向けです。");
-    return;
-  }
-  if (!CONFIG.GOOGLE_MAPS_API_KEY) {
-    $("tilesToggle").checked = false;
-    toast("Google Maps Platformのブラウザ公開キーをscript.jsに設定してください。");
-    $("layerStatus").textContent =
-      "3D街並み未接続：Google Maps Platformのキー、API有効化、課金設定が必要です。";
-    return;
-  }
-  try {
-    $("layerStatus").textContent = "Google Photorealistic 3D Tilesを読み込み中…";
-    googleTileset = await Cesium.createGooglePhotorealistic3DTileset({
-      key: CONFIG.GOOGLE_MAPS_API_KEY
-    });
-    viewer.scene.primitives.add(googleTileset);
-    $("layerStatus").textContent =
-      "Google Photorealistic 3D Tilesを表示中。地球の3Dデータです。";
-  } catch (error) {
-    $("tilesToggle").checked = false;
-    $("layerStatus").textContent =
-      "3D街並みの読み込みに失敗しました。キー制限、Maps Tiles API有効化、課金、通信を確認してください。";
-    console.error("Google 3D Tiles error", error);
-  }
-}
-
-async function search(event) {
-  event.preventDefault();
-  const query = $("searchInput").value.trim();
-  if (!query) return;
-
-  saveSearch(query);
-  $("infoTitle").textContent = "検索結果";
-  $("infoContent").textContent = "検索中…";
-  $("infoPanel").classList.remove("hidden");
-
-  try {
-    let results;
-    if (currentBody === "earth") {
-      const url = new URL(CONFIG.NOMINATIM_URL);
-      url.search = new URLSearchParams({
-        q: query, format: "jsonv2", limit: "5"
-      }).toString();
-      const response = await fetch(url, {
-        headers: { "Accept": "application/json" }
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      results = (await response.json()).map(item => ({
-        name: item.display_name,
-        lat: Number(item.lat),
-        lon: Number(item.lon),
-        source: "OpenStreetMap Nominatim"
-      }));
-    } else {
-      results = LOCAL_PLACES[currentBody]
-        .filter(place => place.name.toLowerCase().includes(query.toLowerCase()))
-        .map(place => ({ ...place }));
+    const data = await dbGet("app");
+    if (data) {
+      state.historyEnabled = data.historyEnabled !== false;
+      $("historyToggle").checked = state.historyEnabled;
+      return {
+        pins: Array.isArray(data.pins) ? data.pins : [],
+        searchHistory: Array.isArray(data.searchHistory) ? data.searchHistory : [],
+        viewHistory: Array.isArray(data.viewHistory) ? data.viewHistory : []
+      };
     }
-    showSearchResults(results);
   } catch (error) {
-    $("infoContent").textContent =
-      `検索に失敗しました。通信、CORS、検索サービスの利用条件を確認してください。(${error.message})`;
+    console.warn("保存データの読み込みに失敗:", error);
   }
+  return { pins: [], searchHistory: [], viewHistory: [] };
 }
 
-function showSearchResults(results) {
-  if (!results.length) {
-    $("infoContent").textContent = currentBody === "earth"
-      ? "検索結果がありません。"
-      : "同梱の代表地点データに一致する結果がありません。月・火星の検索範囲は限定されています。";
-    return;
-  }
-  $("infoContent").innerHTML = results.map((r, i) =>
-    `<div class="list-item">
-      <button class="open-item" data-result="${i}">
-        ${escapeHtml(r.name)}<br>
-        <small>${formatCoord(r.lat)}, ${formatCoord(r.lon)} · ${escapeHtml(r.source || "")}</small>
-      </button>
-    </div>`).join("");
+let saved = { pins: [], searchHistory: [], viewHistory: [] };
 
-  $("infoContent").querySelectorAll("[data-result]").forEach(button => {
-    button.addEventListener("click", () => {
-      const r = results[Number(button.dataset.result)];
-      flyTo(r.lat, r.lon);
-      createPin({ lat: r.lat, lon: r.lon }, r.name, "");
-    });
+function dbGet(key) {
+  if (!state.db) {
+    try { return Promise.resolve(JSON.parse(localStorage.getItem("orbit-atlas") || "null")); }
+    catch { return Promise.resolve(null); }
+  }
+  return new Promise((resolve, reject) => {
+    const req = state.db.transaction("state", "readonly").objectStore("state").get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
   });
 }
 
-function saveSearch(query) {
-  if (!historyIsEnabled()) return;
-  const items = read(STORAGE.searches);
-  items.unshift({ id: crypto.randomUUID(), body: currentBody, query, at: new Date().toISOString() });
-  write(STORAGE.searches, items.slice(0, 100));
-  renderSearchHistory();
-}
-
-function goToCoordinates() {
-  const lat = Number($("latInput").value);
-  const lon = Number($("lonInput").value);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-    toast("緯度は-90〜90、経度は-180〜180で入力してください。");
-    return;
-  }
-  flyTo(lat, lon);
-  createPin({ lat, lon }, "座標から追加", "");
-}
-
-function flyTo(lat, lon) {
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(
-      lon, lat, currentBody === "earth" ? 2500 : 80000, BODIES[currentBody].ellipsoid
-    ),
-    duration: 1.4
-  });
-}
-
-function createPin(coords, name, note) {
-  const pin = {
-    id: crypto.randomUUID(),
-    name,
-    note,
-    body: currentBody,
-    lat: coords.lat,
-    lon: coords.lon,
-    createdAt: new Date().toISOString()
+function persist() {
+  const payload = {
+    version: 1,
+    pins: saved.pins,
+    searchHistory: saved.searchHistory,
+    viewHistory: saved.viewHistory,
+    historyEnabled: state.historyEnabled
   };
-  const pins = read(STORAGE.pins);
-  pins.unshift(pin);
-  write(STORAGE.pins, pins);
-  selectedPinId = pin.id;
-  addPinEntity(pin);
-  renderPinList();
-  showPin(pin);
-  return pin;
+  try {
+    if (!state.db) {
+      localStorage.setItem("orbit-atlas", JSON.stringify(payload));
+      return;
+    }
+    const tx = state.db.transaction("state", "readwrite");
+    tx.objectStore("state").put(payload, "app");
+    tx.onerror = () => {
+      setMessage("保存に失敗しました。ブラウザの保存容量を確認してください。");
+    };
+  } catch (error) {
+    setMessage(`保存に失敗しました: ${error.message}`);
+  }
 }
 
-function addPinEntity(pin) {
-  const id = `pin-${pin.id}`;
-  if (viewer.entities.getById(id)) viewer.entities.removeById(id);
-  if (pin.body !== currentBody) return;
-  viewer.entities.add({
-    id,
-    position: Cesium.Cartesian3.fromDegrees(pin.lon, pin.lat, 0, BODIES[pin.body].ellipsoid),
-    point: {
-      pixelSize: 11,
-      color: Cesium.Color.fromCssColorString("#ffcf5c"),
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 2,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-    },
-    label: {
-      text: pin.name || "ピン",
-      font: "13px sans-serif",
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -18),
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-    }
+function clearTemporary() {
+  for (const entity of state.temporaryEntities) viewer.entities.remove(entity);
+  state.temporaryEntities = [];
+  state.selectedPoint = null;
+  state.selectedPinId = null;
+  $("searchResults").replaceChildren();
+}
+
+function removeBodyAssets() {
+  if (state.tileset) {
+    viewer.scene.primitives.remove(state.tileset);
+    state.tileset = null;
+  }
+  for (const layer of state.imageryLayers) {
+    try { viewer.imageryLayers.remove(layer, true); } catch {}
+  }
+  state.imageryLayers = [];
+  if (state.osmLayer) {
+    viewer.imageryLayers.remove(state.osmLayer, true);
+    state.osmLayer = null;
+  }
+  if (state.indoorLayer) {
+    viewer.imageryLayers.remove(state.indoorLayer, true);
+    state.indoorLayer = null;
+  }
+  for (const entity of state.quakeEntities) viewer.entities.remove(entity);
+  state.quakeEntities = [];
+  viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider({
+    ellipsoid: CONFIG.ellipsoids[state.body]
   });
+  viewer.scene.globe = new Cesium.Globe(CONFIG.ellipsoids[state.body]);
+}
+
+function redrawPins() {
+  for (const entity of state.pinEntities.values()) viewer.entities.remove(entity);
+  state.pinEntities.clear();
+
+  for (const pin of saved.pins.filter(p => p.body === state.body)) {
+    const entity = viewer.entities.add({
+      id: `pin-${pin.id}`,
+      position: Cesium.Cartesian3.fromDegrees(pin.lon, pin.lat, pin.height || 0,
+        CONFIG.ellipsoids[state.body]),
+      point: {
+        pixelSize: 12,
+        color: Cesium.Color.fromCssColorString("#ffca65"),
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      },
+      label: {
+        text: pin.name || "ピン",
+        font: "12px sans-serif",
+        fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 3,
+        pixelOffset: new Cesium.Cartesian2(0, -18),
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 3000000)
+      }
+    });
+    state.pinEntities.set(pin.id, entity);
+  }
+  renderPins();
+}
+
+function updateHistoryUI() {
+  const box = $("historyList");
+  box.replaceChildren();
+  const entries = [
+    ...saved.searchHistory.slice(0, 10).map(x => ({ ...x, type: "search" })),
+    ...saved.viewHistory.slice(0, 10).map(x => ({ ...x, type: "view" }))
+  ].sort((a, b) => b.time - a.time).slice(0, 12);
+
+  if (!entries.length) {
+    box.textContent = "履歴はありません。";
+    return;
+  }
+  for (const item of entries) {
+    const row = document.createElement("div");
+    row.className = "result-item";
+    const open = document.createElement("button");
+    open.className = "item-name";
+    open.textContent = `${item.type === "search" ? "検索" : "閲覧"} · ${item.label || item.query || bodyNames[item.body]} · ${new Date(item.time).toLocaleString()}`;
+    open.onclick = async () => {
+      if (item.type === "search") {
+        $("bodySelect").value = item.body;
+        await switchBody(item.body);
+        $("searchInput").value = item.query;
+        $("searchForm").requestSubmit();
+      } else {
+        $("bodySelect").value = item.body;
+        await switchBody(item.body);
+        viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(item.lon, item.lat, item.height,
+            CONFIG.ellipsoids[item.body]),
+          orientation: { heading: item.heading, pitch: item.pitch, roll: item.roll }
+        });
+      }
+    };
+    const del = document.createElement("button");
+    del.textContent = "削除";
+    del.onclick = () => {
+      const list = item.type === "search" ? saved.searchHistory : saved.viewHistory;
+      const i = list.findIndex(x => x.time === item.time);
+      if (i >= 0) list.splice(i, 1);
+      persist(); updateHistoryUI();
+    };
+    row.append(open, del);
+    box.append(row);
+  }
+}
+
+function renderPins() {
+  const box = $("pinsList");
+  box.replaceChildren();
+  const pins = saved.pins.filter(p => p.body === state.body);
+  if (!pins.length) {
+    box.textContent = "この天体の保存ピンはありません。";
+    return;
+  }
+  for (const pin of pins) {
+    const row = document.createElement("div");
+    row.className = "result-item";
+    const open = document.createElement("button");
+    open.className = "item-name";
+    open.textContent = `${pin.name || "名称なし"} (${pin.lat.toFixed(4)}, ${pin.lon.toFixed(4)})`;
+    open.onclick = () => showPin(pin);
+    const edit = document.createElement("button");
+    edit.textContent = "編集";
+    edit.onclick = () => editPin(pin);
+    const del = document.createElement("button");
+    del.textContent = "削除";
+    del.onclick = () => {
+      saved.pins = saved.pins.filter(p => p.id !== pin.id);
+      persist(); redrawPins();
+    };
+    row.append(open, edit, del);
+    box.append(row);
+  }
+}
+
+function showInfo(title, html) {
+  $("infoTitle").textContent = title;
+  $("infoContent").innerHTML = html;
 }
 
 function showPin(pin) {
-  selectedPinId = pin.id;
-  $("infoPanel").classList.remove("hidden");
-  $("infoTitle").textContent = pin.name || "地点情報";
-  const capabilities = pin.body === "earth"
-    ? "地球：Google 3D街並みはキー設定後利用可能。交通・災害等の情報レイヤーは未接続。"
-    : `${bodyName(pin.body)}：地球向け情報レイヤー、Google 3D Tiles、ストリートビューは利用対象外です。`;
+  const entity = state.pinEntities.get(pin.id);
+  if (entity) {
+    viewer.flyTo(entity, { duration: 1.2 });
+  }
+  state.selectedPoint = { body: pin.body, lon: pin.lon, lat: pin.lat };
+  state.selectedPinId = pin.id;
+  showInfo(pin.name || "保存ピン", `
+    <p>${bodyNames[pin.body]} / 緯度 ${pin.lat.toFixed(6)}° / 経度 ${pin.lon.toFixed(6)}°</p>
+    <p>メモ: ${escapeHtml(pin.note || "なし")}</p>
+    <p>作成日時: ${new Date(pin.createdAt).toLocaleString()}</p>
+    ${pin.body === "earth" ? '<div id="reverseAddress">住所を取得しています…</div><button id="panoramaButton" type="button">360度写真を見る</button>' : ""}
+  `);
+  if (pin.body === "earth") {
+    $("panoramaButton").onclick = () => openPanorama(pin.lon, pin.lat);
+    reverseGeocode(pin.lon, pin.lat);
+  }
+}
 
-  $("infoContent").innerHTML = `
-    <div><b>対象天体：</b>${escapeHtml(bodyName(pin.body))}</div>
-    <div><b>緯度・経度：</b>${formatCoord(pin.lat)}, ${formatCoord(pin.lon)}</div>
-    <div><b>作成日時：</b>${escapeHtml(new Date(pin.createdAt).toLocaleString())}</div>
-    <div class="muted">${escapeHtml(capabilities)}</div>
-    <label>名称</label><input id="editPinName" value="${escapeHtml(pin.name)}">
-    <label>メモ</label><textarea id="editPinNote">${escapeHtml(pin.note)}</textarea>
-    <div class="quick-actions">
-      <button id="savePinEdit">保存</button>
-      <button id="deletePin" class="danger">削除</button>
-    </div>`;
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[c]);
+}
 
-  $("savePinEdit").onclick = () => {
-    const pins = read(STORAGE.pins);
-    const target = pins.find(p => p.id === pin.id);
-    if (!target) return;
-    target.name = $("editPinName").value.trim() || "名称未設定";
-    target.note = $("editPinNote").value;
-    write(STORAGE.pins, pins);
-    addPinEntity(target);
-    renderPinList();
-    showPin(target);
+async function reverseGeocode(lon, lat) {
+  try {
+    const url = `${CONFIG.nominatimUrl}/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
+    const response = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const el = $("reverseAddress");
+    if (el) el.textContent = data.display_name || "住所・施設情報は見つかりませんでした。";
+  } catch {
+    const el = $("reverseAddress");
+    if (el) el.textContent = "住所情報を取得できませんでした。";
+  }
+}
+
+function editPin(pin) {
+  const name = prompt("ピンの名称", pin.name || "");
+  if (name === null) return;
+  const note = prompt("メモ", pin.note || "");
+  if (note === null) return;
+  pin.name = name.trim() || "名称なし";
+  pin.note = note;
+  persist(); redrawPins(); showPin(pin);
+}
+
+function addPin(lon, lat) {
+  const name = prompt("ピンの名称", `${bodyNames[state.body]}の地点`);
+  if (name === null) return;
+  const note = prompt("メモ（任意）", "") ?? "";
+  const pin = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    body: state.body,
+    name: name.trim() || "名称なし",
+    note,
+    lon, lat, height: 0,
+    createdAt: Date.now()
   };
-  $("deletePin").onclick = () => deletePin(pin.id);
-
-  checkStreetView(pin);
+  saved.pins.push(pin);
+  persist(); redrawPins(); showPin(pin);
 }
 
-function deletePin(id) {
-  write(STORAGE.pins, read(STORAGE.pins).filter(pin => pin.id !== id));
-  viewer.entities.removeById(`pin-${id}`);
-  if (selectedPinId === id) {
-    selectedPinId = null;
-    $("streetViewBtn").classList.add("hidden");
-    $("streetViewStatus").textContent = "";
-    $("infoContent").textContent = "ピンを削除しました。";
+function cartographicAt(screenPosition) {
+  const scene = viewer.scene;
+  if (scene.pickPositionSupported) {
+    const picked = scene.pickPosition(screenPosition);
+    if (Cesium.defined(picked)) {
+      const c = Cesium.Cartographic.fromCartesian(picked, CONFIG.ellipsoids[state.body]);
+      if (c) return c;
+    }
   }
-  renderPinList();
+  const ray = viewer.camera.getPickRay(screenPosition);
+  const globeHit = ray && scene.globe.pick(ray, scene);
+  if (globeHit) return Cesium.Cartographic.fromCartesian(globeHit, CONFIG.ellipsoids[state.body]);
+  return viewer.camera.pickEllipsoid(screenPosition, CONFIG.ellipsoids[state.body]);
 }
 
-function renderPinList() {
-  const pins = read(STORAGE.pins).filter(p => p.body === currentBody);
-  $("pinList").innerHTML = pins.length ? pins.map(pin =>
-    `<div class="list-item">
-      <button class="open-item" data-open-pin="${escapeHtml(pin.id)}">
-        ${escapeHtml(pin.name)}<br>
-        <small>${formatCoord(pin.lat)}, ${formatCoord(pin.lon)}</small>
-      </button>
-      <button data-delete-pin="${escapeHtml(pin.id)}" aria-label="削除">×</button>
-    </div>`).join("") : `<span class="muted">保存ピンはありません。</span>`;
-
-  $("pinList").querySelectorAll("[data-open-pin]").forEach(button => {
-    button.onclick = () => {
-      const pin = read(STORAGE.pins).find(p => p.id === button.dataset.openPin);
-      if (!pin) return;
-      addPinEntity(pin);
-      flyTo(pin.lat, pin.lon);
-      showPin(pin);
-    };
-  });
-  $("pinList").querySelectorAll("[data-delete-pin]").forEach(button => {
-    button.onclick = () => deletePin(button.dataset.deletePin);
-  });
-}
-
-function checkStreetView(pin) {
-  streetViewLink = null;
-  $("streetViewBtn").classList.add("hidden");
-  $("streetViewStatus").textContent = "";
-
-  if (pin.body !== "earth") {
-    $("streetViewStatus").textContent = "ストリートビューは地球向け機能です。";
+viewer.screenSpaceEventHandler.setInputAction(event => {
+  const c = cartographicAt(event.position);
+  if (!c) {
+    setMessage("この位置の地表を取得できませんでした。");
     return;
   }
-  if (!CONFIG.GOOGLE_MAPS_API_KEY) {
-    $("streetViewStatus").textContent =
-      "ストリートビュー未確認：Google Maps JavaScript APIキーを別途設定してください。";
+  const lon = Cesium.Math.toDegrees(c.longitude);
+  const lat = Cesium.Math.toDegrees(c.latitude);
+  state.selectedPoint = { body: state.body, lon, lat };
+  addPin(lon, lat);
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+function parseCoordinates(text) {
+  const match = text.trim().match(/^(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+  const a = Number(match[1]), b = Number(match[2]);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a) > 90 || Math.abs(b) > 180) return null;
+  return { lat: a, lon: b };
+}
+
+function addSearchResult(label, lon, lat, source) {
+  const row = document.createElement("div");
+  row.className = "result-item";
+  const button = document.createElement("button");
+  button.className = "item-name";
+  button.textContent = `${label} (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+  button.onclick = () => {
+    const destination = Cesium.Cartesian3.fromDegrees(lon, lat, 12000, CONFIG.ellipsoids[state.body]);
+    viewer.camera.flyTo({ destination, duration: 1.4 });
+    state.selectedPoint = { body: state.body, lon, lat };
+    showInfo(label, `<p>${bodyNames[state.body]} / 緯度 ${lat.toFixed(6)}° / 経度 ${lon.toFixed(6)}°</p><p>出典: ${escapeHtml(source)}</p>`);
+  };
+  row.append(button);
+  $("searchResults").append(row);
+}
+
+async function searchPlaces(query, record = true) {
+  $("searchResults").replaceChildren();
+  const coordinates = parseCoordinates(query);
+  if (coordinates) {
+    addSearchResult("入力座標", coordinates.lon, coordinates.lat, "ユーザー入力");
+    if (record) addSearchHistory(query);
     return;
   }
 
-  loadGoogleMaps().then(() => {
-    const service = new google.maps.StreetViewService();
-    service.getPanorama({
-      location: { lat: pin.lat, lng: pin.lon },
-      radius: 1000,
-      source: google.maps.StreetViewSource.OUTDOOR
-    }, (data, status) => {
-      if (status !== google.maps.StreetViewStatus.OK || !data?.location?.latLng) {
-        $("streetViewStatus").textContent = "この地点付近のストリートビューはありません。";
-        return;
-      }
-      const pos = data.location.latLng;
-      const panoLat = pos.lat();
-      const panoLon = pos.lng();
-      const date = data.imageDate || "撮影日は取得できません";
-      const distance = Cesium.Cartesian3.distance(
-        Cesium.Cartesian3.fromDegrees(pin.lon, pin.lat),
-        Cesium.Cartesian3.fromDegrees(panoLon, panoLat)
-      );
-      $("streetViewStatus").textContent =
-        `ピン位置：${formatCoord(pin.lat)}, ${formatCoord(pin.lon)}。` +
-        `撮影位置：${formatCoord(panoLat)}, ${formatCoord(panoLon)}（約${Math.round(distance)}m）。撮影日：${date}。`;
-      streetViewLink =
-        `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${panoLat},${panoLon}`;
-      $("streetViewBtn").classList.remove("hidden");
+  if (state.body !== "earth") {
+    const list = state.gazetteers[state.body];
+    const matches = list.filter(item => {
+      const name = String(item.properties?.name || item.properties?.NAME || "");
+      return name.toLowerCase().includes(query.toLowerCase());
+    }).slice(0, 20);
+    if (!matches.length) {
+      $("searchResults").textContent = "ローカル地名データに一致する地名がありません。検索対象は登録データに限定されます。";
+      return;
+    }
+    for (const feature of matches) {
+      const [lon, lat] = feature.geometry.coordinates;
+      addSearchResult(feature.properties.name || feature.properties.NAME, lon, lat,
+        feature.properties.source || "登録済みローカルデータ");
+    }
+    if (record) addSearchHistory(query);
+    return;
+  }
+
+  const elapsed = Date.now() - state.lastGeocodeAt;
+  if (elapsed < 1100) await new Promise(resolve => setTimeout(resolve, 1100 - elapsed));
+  state.lastGeocodeAt = Date.now();
+
+  try {
+    const url = `${CONFIG.nominatimUrl}/search?format=jsonv2&limit=8&q=${encodeURIComponent(query)}`;
+    const response = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const results = await response.json();
+    if (!results.length) {
+      $("searchResults").textContent = "検索結果がありません。";
+      return;
+    }
+    results.forEach(item => addSearchResult(item.display_name, Number(item.lon), Number(item.lat), "OpenStreetMap Nominatim"));
+    if (record) addSearchHistory(query);
+  } catch (error) {
+    $("searchResults").textContent = `検索に失敗しました（${error.message}）。通信・利用制限を確認してください。`;
+  }
+}
+
+function addSearchHistory(query) {
+  if (!state.historyEnabled) return;
+  saved.searchHistory.unshift({ query, body: state.body, time: Date.now() });
+  saved.searchHistory = saved.searchHistory.slice(0, 100);
+  persist(); updateHistoryUI();
+}
+
+$("searchForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const query = $("searchInput").value.trim();
+  if (!query) return;
+  await searchPlaces(query);
+});
+
+async function fetchIonMetadata(assetId) {
+  if (!CONFIG.ionToken) throw new Error("Cesium ionトークンが未設定です。");
+  const response = await fetch(`https://api.cesium.com/v1/assets/${assetId}`, {
+    headers: { Authorization: `Bearer ${CONFIG.ionToken}` }
+  });
+  if (!response.ok) throw new Error(`ionメタデータ取得失敗: HTTP ${response.status}`);
+  return response.json();
+}
+
+function metadataType(meta) {
+  return String(meta.type || meta.assetType || meta.externalType || "").toUpperCase();
+}
+
+async function addIonAsset(body, generation) {
+  const assetId = CONFIG.assets[body];
+  const meta = await fetchIonMetadata(assetId);
+  if (generation !== state.generation) return;
+
+  const type = metadataType(meta);
+  setBodyStatus(`ion asset ${assetId}: type=${type || "不明"} / status=${meta.status || "不明"}`);
+
+  if (body === "earth" && type.includes("3D")) {
+    const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
+    if (generation !== state.generation) return;
+    state.tileset = tileset;
+    viewer.scene.primitives.add(tileset);
+    return;
+  }
+
+  if (type.includes("3D")) {
+    const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
+    if (generation !== state.generation) return;
+    state.tileset = tileset;
+    viewer.scene.primitives.add(tileset);
+    setBodyStatus(`ion asset ${assetId}: 3D Tilesを読み込みました。座標系・範囲はアセット提供元の情報で別途確認してください。`);
+    return;
+  }
+
+  if (type.includes("IMAGERY") && body === "earth") {
+    const provider = await Cesium.IonImageryProvider.fromAssetId(assetId);
+    if (generation !== state.generation) return;
+    state.imageryLayers.push(viewer.imageryLayers.addImageryProvider(provider));
+    return;
+  }
+
+  if (type.includes("TERRAIN") && body === "earth") {
+    const provider = await Cesium.CesiumTerrainProvider.fromIonAssetId(assetId);
+    if (generation !== state.generation) return;
+    viewer.terrainProvider = provider;
+    return;
+  }
+
+  throw new Error(
+    `アセットの種類「${type || "不明"}」はこの設定では安全に表示できません。ionのメタデータと座標系を確認してください。`
+  );
+}
+
+async function switchBody(body) {
+  const generation = ++state.generation;
+  state.body = body;
+  $("activeBodyLabel").textContent = bodyNames[body];
+  $("bodySelect").value = body;
+  $("searchResults").replaceChildren();
+  $("searchHint").textContent = body === "earth"
+    ? "地球検索はNominatimを検索時に照会します。"
+    : "月・火星検索は登録済みローカル地名データのみです。";
+  $("earthTilesToggle").disabled = body !== "earth";
+  $("osmToggle").disabled = body !== "earth";
+  $("quakeToggle").disabled = body !== "earth";
+  $("aqiToggle").disabled = body !== "earth";
+  $("earthTilesToggle").checked = body === "earth";
+  $("osmToggle").checked = false;
+  $("quakeToggle").checked = false;
+  $("aqiToggle").checked = false;
+
+  clearTemporary();
+  removeBodyAssets();
+  viewer.scene.globe = new Cesium.Globe(CONFIG.ellipsoids[body]);
+  viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider({ ellipsoid: CONFIG.ellipsoids[body] });
+  redrawPins();
+
+  const home = CONFIG.homes[body];
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(home.lon, home.lat, home.height, CONFIG.ellipsoids[body]),
+    duration: 0.8
+  });
+
+  setMessage(`${bodyNames[body]}を準備しています…`);
+  setBodyStatus(CONFIG.ionToken ? "ionアセット情報を確認中…" : "ionトークン未設定。座標・保存ピン等は利用できます。");
+
+  if (body === "earth" && $("osmToggle").checked) await enableOSM();
+
+  if (CONFIG.ionToken) {
+    try {
+      await addIonAsset(body, generation);
+      if (generation !== state.generation) return;
+      setMessage(`${bodyNames[body]}のアセットを読み込みました。`);
+    } catch (error) {
+      if (generation !== state.generation) return;
+      setBodyStatus(error.message);
+      setMessage("アセットを利用できません。トークン・権限・アセット情報を確認してください。");
+    }
+  } else {
+    setMessage(`${bodyNames[body]}: ion未設定。座標検索・保存ピンは使用できます。`);
+  }
+}
+
+async function enableOSM() {
+  try {
+    if (state.body !== "earth" || state.osmLayer) return;
+    const provider = await Cesium.UrlTemplateImageryProvider.fromUrl(
+      "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { credit: new Cesium.Credit("© OpenStreetMap contributors", true), maximumLevel: 19 }
+    );
+    state.osmLayer = viewer.imageryLayers.addImageryProvider(provider);
+    $("layerStatus").textContent = "地図: © OpenStreetMap contributors。衛星写真ではありません。利用ポリシーを確認してください。";
+  } catch (error) {
+    $("layerStatus").textContent = `OpenStreetMapを読み込めません: ${error.message}`;
+  }
+}
+
+$("bodySelect").addEventListener("change", event => switchBody(event.target.value));
+$("earthTilesToggle").addEventListener("change", async event => {
+  if (state.body !== "earth") return;
+  if (event.target.checked) await switchBody("earth");
+  else {
+    if (state.tileset) viewer.scene.primitives.remove(state.tileset);
+    state.tileset = null;
+    setMessage("地球3Dタイルを非表示にしました。");
+  }
+});
+$("osmToggle").addEventListener("change", async event => {
+  if (event.target.checked) await enableOSM();
+  else if (state.osmLayer) {
+    viewer.imageryLayers.remove(state.osmLayer, true);
+    state.osmLayer = null;
+  }
+});
+
+$("homeButton").onclick = () => {
+  const h = CONFIG.homes[state.body];
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(h.lon, h.lat, h.height, CONFIG.ellipsoids[state.body]),
+    duration: 1
+  });
+};
+$("tiltButton").onclick = () => {
+  const c = viewer.camera.positionCartographic;
+  viewer.camera.setView({
+    destination: viewer.camera.position,
+    orientation: { heading: viewer.camera.heading, pitch: -Math.PI / 2, roll: 0 }
+  });
+};
+
+async function loadGazetteer(body) {
+  try {
+    const response = await fetch(CONFIG.dataFiles[body]);
+    if (!response.ok) throw new Error("データ未配置");
+    const geojson = await response.json();
+    state.gazetteers[body] = (geojson.features || []).filter(f =>
+      f.geometry?.type === "Point" && Array.isArray(f.geometry.coordinates)
+    );
+  } catch {
+    state.gazetteers[body] = [];
+  }
+}
+
+async function loadQuakes() {
+  if (state.body !== "earth") return;
+  for (const e of state.quakeEntities) viewer.entities.remove(e);
+  state.quakeEntities = [];
+  setMessage("USGS地震データを取得しています…");
+  try {
+    const response = await fetch(CONFIG.usgsUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    for (const feature of data.features || []) {
+      const [lon, lat, depth] = feature.geometry.coordinates;
+      const entity = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, Math.max(0, -depth * 1000), CONFIG.ellipsoids.earth),
+        point: { pixelSize: 7, color: Cesium.Color.ORANGERED, outlineColor: Cesium.Color.WHITE, outlineWidth: 1 },
+        description: `${escapeHtml(feature.properties.title || "地震")}<br>観測時刻: ${new Date(feature.properties.time).toLocaleString()}`
+      });
+      state.quakeEntities.push(entity);
+    }
+    setMessage(`USGS地震: 取得 ${new Date().toLocaleString()}。観測時刻は各地点の情報を確認してください。`);
+    $("layerStatus").textContent = `出典: USGS Earthquake Hazards Program / all_day.geojson。取得 ${new Date().toLocaleString()}。`;
+  } catch (error) {
+    setMessage(`地震データ未取得: ${error.message}。異常なしを意味しません。`);
+  }
+}
+$("quakeToggle").addEventListener("change", event => {
+  if (event.target.checked) loadQuakes();
+  else {
+    for (const e of state.quakeEntities) viewer.entities.remove(e);
+    state.quakeEntities = [];
+  }
+});
+
+async function loadAqi() {
+  if (state.body !== "earth" || !state.selectedPoint) {
+    setMessage("AQIは地球上の地点を選択してから表示してください。");
+    $("aqiToggle").checked = false;
+    return;
+  }
+  const { lon, lat } = state.selectedPoint;
+  const url = `${CONFIG.openMeteoAirUrl}?latitude=${lat}&longitude=${lon}&current=us_aqi`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const aqi = data.current?.us_aqi;
+    if (aqi == null) throw new Error("AQI値が返りませんでした");
+    setMessage(`Open-Meteo AQI: ${aqi}（取得 ${new Date().toLocaleString()}）`);
+    $("layerStatus").textContent = `出典: Open-Meteo Air Quality API。地点 ${lat.toFixed(3)}, ${lon.toFixed(3)}。観測・モデル時刻: ${data.current.time || "不明"}。`;
+  } catch (error) {
+    setMessage(`AQI未取得: ${error.message}。異常なしを意味しません。`);
+  }
+}
+$("aqiToggle").addEventListener("change", event => {
+  if (event.target.checked) loadAqi();
+});
+
+async function loadPanoramaCatalog() {
+  try {
+    const response = await fetch(CONFIG.dataFiles.panoramas);
+    if (!response.ok) throw new Error();
+    const data = await response.json();
+    state.panoramaData = Array.isArray(data) ? data : [];
+  } catch {
+    state.panoramaData = [];
+  }
+}
+
+function haversineMeters(lon1, lat1, lon2, lat2) {
+  const rad = x => x * Math.PI / 180;
+  const dLat = rad(lat2 - lat1), dLon = rad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function openPanorama(lon, lat) {
+  const matches = state.panoramaData
+    .map(item => ({ ...item, distance: haversineMeters(lon, lat, item.lon, item.lat) }))
+    .filter(item => item.distance <= Number(item.radiusMeters || 500))
+    .sort((a, b) => a.distance - b.distance);
+
+  $("panoramaModal").classList.remove("hidden");
+  $("panoramaChoices").replaceChildren();
+  if (!matches.length) {
+    $("panoramaViewer").textContent = "この地点付近の360度写真はありません。";
+    return;
+  }
+  if (!window.pannellum) {
+    $("panoramaViewer").textContent = "写真は登録されていますが、Pannellumが未配置です。";
+    return;
+  }
+
+  const show = item => {
+    if (state.panoramaViewer) {
+      try { state.panoramaViewer.destroy(); } catch {}
+      state.panoramaViewer = null;
+    }
+    $("panoramaViewer").replaceChildren();
+    state.panoramaViewer = pannellum.viewer("panoramaViewer", {
+      type: "equirectangular",
+      panorama: item.url,
+      autoLoad: true,
+      showControls: true
     });
-  }).catch(error => {
-    $("streetViewStatus").textContent =
-      `ストリートビュー確認に失敗しました。API有効化・キー制限・通信を確認してください。(${error.message})`;
-  });
+    $("panoramaChoices").dataset.active = item.id || item.url;
+  };
+
+  for (const item of matches) {
+    const button = document.createElement("button");
+    button.textContent = `${item.title || "写真"} · 撮影位置まで${Math.round(item.distance)}m · ${item.capturedAt || "撮影日時不明"}`;
+    button.onclick = () => show(item);
+    $("panoramaChoices").append(button);
+  }
+  show(matches[0]);
+  $("panoramaViewer").insertAdjacentHTML("afterend",
+    `<p>ピン位置と撮影位置は異なる場合があります。写真の撮影位置: ${matches[0].lat}, ${matches[0].lon}</p>`);
+}
+$("closePanorama").onclick = () => {
+  $("panoramaModal").classList.add("hidden");
+  if (state.panoramaViewer) {
+    try { state.panoramaViewer.destroy(); } catch {}
+    state.panoramaViewer = null;
+  }
+};
+
+async function loadIndoorData() {
+  try {
+    const response = await fetch(CONFIG.dataFiles.indoor);
+    if (!response.ok) throw new Error();
+    const data = await response.json();
+    state.indoorData = Array.isArray(data.facilities) ? data.facilities : [];
+    const select = $("facilitySelect");
+    select.replaceChildren(new Option("施設を選択", ""));
+    for (const facility of state.indoorData) select.add(new Option(facility.name, facility.id));
+    $("indoorStatus").textContent = state.indoorData.length
+      ? "登録データを読み込みました。施設の出典・利用条件を確認してください。"
+      : "施設データがありません。";
+  } catch {
+    $("indoorStatus").textContent = "施設データ未登録。図面は表示していません。";
+  }
 }
 
-let googleMapsPromise;
-function loadGoogleMaps() {
-  if (window.google?.maps) return Promise.resolve();
-  if (googleMapsPromise) return googleMapsPromise;
-  googleMapsPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(CONFIG.GOOGLE_MAPS_API_KEY)}`;
-    script.async = true;
-    script.onload = resolve;
-    script.onerror = () => reject(new Error("Google Maps JavaScript APIの読み込み失敗"));
-    document.head.appendChild(script);
-  });
-  return googleMapsPromise;
-}
+$("facilitySelect").addEventListener("change", () => {
+  const facility = state.indoorData.find(x => x.id === $("facilitySelect").value);
+  $("floorSelect").replaceChildren();
+  if (!facility) {
+    $("floorSelect").disabled = true;
+    return;
+  }
+  for (const floor of facility.floors || []) $("floorSelect").add(new Option(floor.name, floor.id));
+  $("floorSelect").disabled = false;
+  $("indoorStatus").textContent =
+    `${facility.name} / 出典: ${facility.source || "未記載"}。画像の座標範囲が正しいことを確認してください。`;
+  $("floorSelect").dispatchEvent(new Event("change"));
+});
 
-function recordView() {
-  if (!historyIsEnabled() || !viewer || !viewer.camera.positionCartographic) return;
-  const p = viewer.camera.positionCartographic;
-  const entry = {
-    id: crypto.randomUUID(),
-    body: currentBody,
-    lat: Cesium.Math.toDegrees(p.latitude),
-    lon: Cesium.Math.toDegrees(p.longitude),
-    height: p.height,
+$("floorSelect").addEventListener("change", async () => {
+  if (state.indoorLayer) {
+    viewer.imageryLayers.remove(state.indoorLayer, true);
+    state.indoorLayer = null;
+  }
+  const facility = state.indoorData.find(x => x.id === $("facilitySelect").value);
+  const floor = facility?.floors?.find(x => x.id === $("floorSelect").value);
+  if (!floor?.image || !Array.isArray(floor.rectangle) || floor.rectangle.length !== 4) return;
+  try {
+    const rectangle = Cesium.Rectangle.fromDegrees(...floor.rectangle);
+    const provider = await Cesium.SingleTileImageryProvider.fromUrl(floor.image, { rectangle });
+    state.indoorLayer = viewer.imageryLayers.addImageryProvider(provider);
+  } catch (error) {
+    $("indoorStatus").textContent = `フロア画像を表示できません: ${error.message}`;
+  }
+});
+
+$("closeInfo").onclick = () => $("infoPanel").classList.add("hidden");
+
+$("historyToggle").addEventListener("change", event => {
+  state.historyEnabled = event.target.checked;
+  persist();
+});
+$("clearSearchHistory").onclick = () => {
+  if (confirm("検索履歴をすべて消去しますか？")) {
+    saved.searchHistory = []; persist(); updateHistoryUI();
+  }
+};
+$("clearViewHistory").onclick = () => {
+  if (confirm("閲覧履歴をすべて消去しますか？")) {
+    saved.viewHistory = []; persist(); updateHistoryUI();
+  }
+};
+
+function saveCameraHistory() {
+  if (!state.historyEnabled) return;
+  const c = viewer.camera.positionCartographic;
+  if (!c) return;
+  const item = {
+    body: state.body,
+    lon: Cesium.Math.toDegrees(c.longitude),
+    lat: Cesium.Math.toDegrees(c.latitude),
+    height: c.height,
     heading: viewer.camera.heading,
     pitch: viewer.camera.pitch,
     roll: viewer.camera.roll,
-    at: new Date().toISOString()
+    label: `${bodyNames[state.body]} ${Cesium.Math.toDegrees(c.latitude).toFixed(2)}, ${Cesium.Math.toDegrees(c.longitude).toFixed(2)}`,
+    time: Date.now()
   };
-  const key = [entry.body, entry.lat.toFixed(3), entry.lon.toFixed(3),
-    entry.height.toFixed(0)].join(":");
-  if (key === lastHistoryKey) return;
-  lastHistoryKey = key;
-  const items = read(STORAGE.history);
-  items.unshift(entry);
-  write(STORAGE.history, items.slice(0, 100));
-  renderHistory();
+  const last = saved.viewHistory[0];
+  if (last && last.body === item.body &&
+      haversineMeters(last.lon, last.lat, item.lon, item.lat) < 300 &&
+      Math.abs(last.height - item.height) < 500) return;
+  saved.viewHistory.unshift(item);
+  saved.viewHistory = saved.viewHistory.slice(0, 100);
+  persist(); updateHistoryUI();
 }
+viewer.camera.changed.addEventListener(() => {
+  clearTimeout(state.cameraHistoryTimer);
+  state.cameraHistoryTimer = setTimeout(saveCameraHistory, 1800);
+});
 
-function renderHistory() {
-  const items = read(STORAGE.history).slice(0, 30);
-  $("historyList").innerHTML = items.length ? items.map(item =>
-    `<div class="list-item">
-      <button class="open-item" data-history="${escapeHtml(item.id)}">
-        ${escapeHtml(bodyName(item.body))} · ${formatCoord(item.lat)}, ${formatCoord(item.lon)}
-        <br><small>${escapeHtml(new Date(item.at).toLocaleString())}</small>
-      </button>
-      <button data-delete-history="${escapeHtml(item.id)}" aria-label="削除">×</button>
-    </div>`).join("") : `<span class="muted">閲覧履歴はありません。</span>`;
-
-  $("historyList").querySelectorAll("[data-history]").forEach(button => {
-    button.onclick = () => {
-      const item = read(STORAGE.history).find(x => x.id === button.dataset.history);
-      if (!item) return;
-      setBody(item.body).then(() => viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          item.lon, item.lat, item.height, BODIES[item.body].ellipsoid
-        ),
-        orientation: { heading: item.heading, pitch: item.pitch, roll: item.roll }
-      }));
-    };
-  });
-  $("historyList").querySelectorAll("[data-delete-history]").forEach(button => {
-    button.onclick = () => {
-      write(STORAGE.history, read(STORAGE.history).filter(x => x.id !== button.dataset.deleteHistory));
-      renderHistory();
-    };
-  });
-}
-
-function renderSearchHistory() {
-  const items = read(STORAGE.searches).slice(0, 30);
-  $("searchHistoryList").innerHTML = items.length ? items.map(item =>
-    `<div class="list-item">
-      <button class="open-item" data-search-history="${escapeHtml(item.id)}">
-        ${escapeHtml(bodyName(item.body))} · ${escapeHtml(item.query)}
-        <br><small>${escapeHtml(new Date(item.at).toLocaleString())}</small>
-      </button>
-      <button data-delete-search="${escapeHtml(item.id)}" aria-label="削除">×</button>
-    </div>`).join("") : `<span class="muted">検索履歴はありません。</span>`;
-
-  $("searchHistoryList").querySelectorAll("[data-search-history]").forEach(button => {
-    button.onclick = async () => {
-      const item = read(STORAGE.searches).find(x => x.id === button.dataset.searchHistory);
-      if (!item) return;
-      await setBody(item.body);
-      $("searchInput").value = item.query;
-      $("searchForm").requestSubmit();
-    };
-  });
-  $("searchHistoryList").querySelectorAll("[data-delete-search]").forEach(button => {
-    button.onclick = () => {
-      write(STORAGE.searches, read(STORAGE.searches).filter(x => x.id !== button.dataset.deleteSearch));
-      renderSearchHistory();
-    };
-  });
-}
-
-function renderAllLists() {
-  renderPinList();
-  renderHistory();
-  renderSearchHistory();
-}
-
-function startMeasure(mode) {
-  clearMeasure();
-  measureMode = mode;
-  $("measureStatus").textContent = mode === "distance"
-    ? "地図をクリックして2点以上を指定し、「測定終了」を押してください。"
-    : "地図をクリックして3点以上を指定し、「測定終了」を押してください。";
-}
-function addMeasurePoint(cartographic) {
-  measurePoints.push(cartographic);
-  const position = Cesium.Cartesian3.fromRadians(
-    cartographic.longitude, cartographic.latitude, 0, BODIES[currentBody].ellipsoid
-  );
-  measureEntities.push(viewer.entities.add({
-    position,
-    point: { pixelSize: 8, color: Cesium.Color.CYAN },
-    polyline: measurePoints.length > 1 ? {
-      positions: measurePoints.map(p => Cesium.Cartesian3.fromRadians(
-        p.longitude, p.latitude, 0, BODIES[currentBody].ellipsoid
-      )),
-      width: 2,
-      material: Cesium.Color.CYAN
-    } : undefined
-  }));
-  $("measureStatus").textContent = `${measurePoints.length}点を指定しました。`;
-}
-
-function finishMeasure() {
-  if (!measureMode) return;
-  if (measureMode === "distance") {
-    if (measurePoints.length < 2) {
-      $("measureStatus").textContent = "距離測定には2点以上必要です。";
-      return;
-    }
-    let meters = 0;
-    for (let i = 1; i < measurePoints.length; i++) {
-      const g = new Cesium.EllipsoidGeodesic(
-        measurePoints[i - 1], measurePoints[i], BODIES[currentBody].ellipsoid
-      );
-      meters += g.surfaceDistance;
-    }
-    $("measureStatus").textContent =
-      `地表距離（楕円体上の測地線の合計）：${meters >= 1000 ? (meters / 1000).toFixed(3) + " km" : meters.toFixed(1) + " m"}`;
-  } else {
-    if (measurePoints.length < 3) {
-      $("measureStatus").textContent = "面積測定には3点以上必要です。";
-      return;
-    }
-    const radius = (BODIES[currentBody].ellipsoid.maximumRadius +
-      BODIES[currentBody].ellipsoid.minimumRadius) / 2;
-    const area = sphericalPolygonArea(measurePoints, radius);
-    $("measureStatus").textContent =
-      `球面近似面積（天体平均半径を使用）：${area >= 1e6 ? (area / 1e6).toFixed(3) + " km²" : area.toFixed(0) + " m²"}`;
+$("arButton").onclick = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    $("arStatus").textContent = "このブラウザではカメラAPIを利用できません。HTTPSまたはlocalhostで開いてください。";
+    return;
   }
-  measureMode = null;
-}
-
-function sphericalPolygonArea(points, radius) {
-  let sum = 0;
-  for (let i = 0; i < points.length; i++) {
-    const a = points[i];
-    const b = points[(i + 1) % points.length];
-    sum += (b.longitude - a.longitude) *
-      (2 + Math.sin(a.latitude) + Math.sin(b.latitude));
+  if (!navigator.geolocation) {
+    $("arStatus").textContent = "位置情報APIを利用できません。";
+    return;
   }
-  return Math.abs(sum * radius * radius / 2);
-}
-function clearMeasure() {
-  measureEntities.forEach(entity => viewer?.entities.remove(entity));
-  measureEntities = [];
-  measurePoints = [];
-  measureMode = null;
-  if ($("measureStatus")) $("measureStatus").textContent = "測定を解除しました。";
-}
+  try {
+    const position = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+    );
+    state.arStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    $("arVideo").srcObject = state.arStream;
+    $("arOverlay").classList.remove("hidden");
+    const lat = position.coords.latitude, lon = position.coords.longitude;
+    const nearby = saved.pins.filter(p => p.body === "earth")
+      .map(p => ({ ...p, distance: haversineMeters(lon, lat, p.lon, p.lat) }))
+      .filter(p => p.distance < 500)
+      .sort((a, b) => a.distance - b.distance).slice(0, 8);
+    const labels = $("arLabels");
+    labels.replaceChildren();
+    if (!nearby.length) {
+      labels.textContent = "周辺500m以内に保存済みピンはありません。";
+    } else {
+      for (const pin of nearby) {
+        const div = document.createElement("div");
+        div.className = "ar-label";
+        div.textContent = `${pin.name} · 約${Math.round(pin.distance)}m`;
+        labels.append(div);
+      }
+    }
+    $("arStatus").textContent =
+      `位置精度 約${Math.round(position.coords.accuracy)}m。画面上の表示は簡易一覧で、方位・空間への正確な位置合わせではありません。`;
+  } catch (error) {
+    $("arStatus").textContent =
+      `カメラまたは位置情報を利用できません（${error.message}）。権限、HTTPS、対応端末を確認してください。`;
+  }
+};
+$("stopArButton").onclick = () => {
+  if (state.arStream) state.arStream.getTracks().forEach(track => track.stop());
+  state.arStream = null;
+  $("arVideo").srcObject = null;
+  $("arOverlay").classList.add("hidden");
+};
 
-document.addEventListener("DOMContentLoaded", init);
+async function init() {
+  saved = await loadSavedState();
+  $("historyToggle").checked = state.historyEnabled;
+  $("bodyStatus").textContent = `保存先: ${state.storageMode}（ブラウザ内のみ。端末間同期なし）`;
+
+  await Promise.all([
+    loadGazetteer("moon"),
+    loadGazetteer("mars"),
+    loadPanoramaCatalog(),
+    loadIndoorData()
+  ]);
+
+  redrawPins();
+  updateHistoryUI();
+  await switchBody("earth");
+}
+init().catch(error => {
+  console.error(error);
+  setMessage("初期化に失敗しました。開発者コンソールを確認してください。");
+});
