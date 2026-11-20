@@ -25,9 +25,13 @@
       --accent: #76baff;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
-    html, body, #cesiumContainer {
+    html,
+    body,
+    #cesiumContainer {
       width: 100%;
       height: 100%;
       margin: 0;
@@ -63,8 +67,15 @@
       letter-spacing: .12em;
     }
 
-    .brand span { color: var(--accent); }
-    .top-actions { margin-left: auto; }
+    .brand span {
+      color: var(--accent);
+    }
+
+    .top-actions {
+      display: flex;
+      gap: 7px;
+      margin-left: auto;
+    }
 
     button {
       color: var(--text);
@@ -76,7 +87,9 @@
       white-space: nowrap;
     }
 
-    button:hover { border-color: rgba(118, 186, 255, .75); }
+    button:hover {
+      border-color: rgba(118, 186, 255, .75);
+    }
 
     .landmarks {
       position: absolute;
@@ -91,7 +104,9 @@
       background: rgba(7, 12, 21, .78);
     }
 
-    .landmarks button { flex: 0 0 auto; }
+    .landmarks button {
+      flex: 0 0 auto;
+    }
 
     .status {
       position: absolute;
@@ -120,12 +135,15 @@
       box-shadow: 0 14px 45px rgba(0, 0, 0, .35);
     }
 
-    .panel[hidden] { display: none; }
+    .panel[hidden] {
+      display: none;
+    }
 
     .panel-heading {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 8px;
       margin-bottom: 10px;
     }
 
@@ -136,10 +154,22 @@
     }
 
     @media (max-width: 700px) {
-      .topbar { padding: 6px 8px; }
-      .brand { font-size: 12px; }
-      .top-actions button { padding: 6px 8px; font-size: 12px; }
-      .landmarks { top: 50px; }
+      .topbar {
+        padding: 6px 8px;
+      }
+
+      .brand {
+        font-size: 12px;
+      }
+
+      .top-actions button {
+        padding: 6px 8px;
+        font-size: 12px;
+      }
+
+      .landmarks {
+        top: 50px;
+      }
     }
   </style>
 </head>
@@ -169,19 +199,30 @@
   <script>
     "use strict";
 
-    const ION_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjROZHZWMHdLYXV3SWNwSzIiLCJqdGkiOiI3Yjg5YzUwZC02NTlmLTQzODctYjExYi04MTY4Nzk2NzA0YjEiLCJpZCI6NTEyNjIzLCJzdWIiOiJrb3RhODA4OCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiLlroflrpnjg57jg4Pjg5fnlKgiLCJpYXQiOjE3OTUxMzY0MjV9.IGtfp-6X0Ib5S8z9wby-FfSRu1I_-a2NGKAMVBxkm1I";
-    const EARTH_ASSET_ID = 2275207;
-
-    const landmarks = [
-      { name: "東京タワー", lon: 139.7454, lat: 35.6586, height: 3500 },
-      { name: "エッフェル塔", lon: 2.2945, lat: 48.8584, height: 3500 },
-      { name: "自由の女神", lon: -74.0445, lat: 40.6892, height: 4500 }
+    // 地球上の名所。heightはカメラの高度（メートル）です。
+    const LANDMARKS = [
+      {
+        name: "東京タワー",
+        lon: 139.7454,
+        lat: 35.6586,
+        height: 3500
+      },
+      {
+        name: "エッフェル塔",
+        lon: 2.2945,
+        lat: 48.8584,
+        height: 3500
+      },
+      {
+        name: "自由の女神",
+        lon: -74.0445,
+        lat: 40.6892,
+        height: 4500
+      }
     ];
 
     const $ = (id) => document.getElementById(id);
-
     let viewer;
-    let earthTileset = null;
 
     function setStatus(message) {
       $("status").textContent = message;
@@ -197,7 +238,9 @@
     function goToLandmark(place) {
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(
-          place.lon, place.lat, place.height
+          place.lon,
+          place.lat,
+          place.height
         ),
         orientation: {
           heading: Cesium.Math.toRadians(15),
@@ -211,7 +254,7 @@
     function addLandmarkButtons() {
       const container = $("landmarks");
 
-      for (const place of landmarks) {
+      for (const place of LANDMARKS) {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = place.name;
@@ -220,47 +263,58 @@
       }
     }
 
-    function tokenIsConfigured() {
-      return ION_TOKEN &&
-        !ION_TOKEN.includes("PASTE_RESTRICTED");
+    function addSatelliteImagery() {
+      // Esriの衛星画像タイル。Cesium ionは使用しません。
+      const imageryProvider = new Cesium.UrlTemplateImageryProvider({
+        url:
+          "https://server.arcgisonline.com/ArcGIS/rest/services/" +
+          "World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        tilingScheme: new Cesium.WebMercatorTilingScheme(),
+        maximumLevel: 19,
+        credit: "Tiles © Esri"
+      });
+
+      // タイル取得に失敗した場合は、コンソールと画面に知らせます。
+      imageryProvider.errorEvent.addEventListener((error) => {
+        console.error("衛星画像タイルの読み込みエラー:", error);
+        setStatus(
+          "衛星画像を読み込めません。ネット接続やブラウザーの通信エラーを確認してください。"
+        );
+      });
+
+      viewer.imageryLayers.removeAll();
+      viewer.imageryLayers.addImageryProvider(imageryProvider);
+
+      setStatus("地球の衛星画像を読み込み中…");
     }
 
-    async function loadEarthTiles() {
-      if (!tokenIsConfigured()) {
-        setStatus("地球の地図を表示中です。3D Tilesを使う場合はionトークンを設定してください。");
-        return;
-      }
+    function setupControls() {
+      $("homeButton").addEventListener("click", goHome);
 
-      try {
-        Cesium.Ion.defaultAccessToken = ION_TOKEN;
-        setStatus("地図を表示中です。地球の3Dデータを読み込んでいます…");
+      $("infoButton").addEventListener("click", () => {
+        $("infoPanel").hidden = !$("infoPanel").hidden;
+      });
 
-        earthTileset = await Cesium.Cesium3DTileset.fromIonAssetId(
-          EARTH_ASSET_ID
-        );
+      $("closeInfo").addEventListener("click", () => {
+        $("infoPanel").hidden = true;
+      });
 
-        viewer.scene.primitives.add(earthTileset);
-
-        setStatus("地球の地図と3Dデータを表示中です。");
-      } catch (error) {
-        console.error("地球の3D Tiles読み込みエラー:", error);
-        setStatus("地図は表示中ですが、3D Tilesを読み込めませんでした。ionのトークンとアセット権限を確認してください。");
-      }
+      $("infoContent").textContent =
+        "画像: Esri World Imagery。地形: Cesium楕円体。" +
+        "Cesium ionおよびionトークンは使用していません。";
     }
 
     function start() {
       if (!window.Cesium) {
-        setStatus("CesiumJSを読み込めません。通信状態を確認してください。");
+        setStatus("CesiumJSを読み込めません。ネット接続を確認してください。");
         return;
       }
 
-      if (tokenIsConfigured()) {
-        Cesium.Ion.defaultAccessToken = ION_TOKEN;
-      }
-
       viewer = new Cesium.Viewer("cesiumContainer", {
+        // Cesium標準の背景画像・地形を使わず、下で衛星画像を追加します。
         baseLayer: false,
         terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+
         animation: false,
         timeline: false,
         geocoder: false,
@@ -273,50 +327,18 @@
         selectionIndicator: false
       });
 
-     // 地図画像を追加
-const imageryProvider = new Cesium.UrlTemplateImageryProvider({
-  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  tilingScheme: new Cesium.WebMercatorTilingScheme(),
-  maximumLevel: 19,
-  credit: "Tiles © Esri"
-});
-
-imageryProvider.errorEvent.addEventListener((error) => {
-  console.error("地図画像の読み込みエラー:", error);
-  setStatus("地図画像を読み込めません。ネット接続やブラウザーの開発者ツールを確認してください。");
-});
-
-viewer.imageryLayers.removeAll();
-viewer.imageryLayers.addImageryProvider(imageryProvider);
-
-viewer.scene.globe.show = true;
-viewer.scene.globe.baseColor =
-  Cesium.Color.fromCssColorString("#101722");
-
-      viewer.imageryLayers.addImageryProvider(osmImagery);
+      // 球体に衛星画像を貼り付けます。
       viewer.scene.globe.show = true;
       viewer.scene.globe.baseColor =
         Cesium.Color.fromCssColorString("#101722");
+
+      // 地表近くまでカメラで移動できるようにします。
       viewer.scene.screenSpaceCameraController.enableCollisionDetection = false;
 
+      addSatelliteImagery();
       addLandmarkButtons();
-
-      $("homeButton").addEventListener("click", goHome);
-      $("infoButton").addEventListener("click", () => {
-        $("infoPanel").hidden = !$("infoPanel").hidden;
-      });
-      $("closeInfo").addEventListener("click", () => {
-        $("infoPanel").hidden = true;
-      });
-
-      $("infoContent").textContent =
-        "地図画像: OpenStreetMap / 地形: Cesium楕円体" +
-        (tokenIsConfigured()
-          ? " / 3D Tiles: Cesium ion"
-          : " / ionトークン未設定のため3D Tilesは未使用");
-
+      setupControls();
       goHome();
-      loadEarthTiles();
     }
 
     start();
