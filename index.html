@@ -7,13 +7,13 @@
 
   <link
     rel="stylesheet"
-    href="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Widgets/widgets.css">
+    href="https://cesium.com/downloads/cesiumjs/releases/1.129/Build/Cesium/Widgets/widgets.css">
 
   <script>
     window.CESIUM_BASE_URL =
-      "https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/";
+      "https://cesium.com/downloads/cesiumjs/releases/1.129/Build/Cesium/";
   </script>
-  <script src="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Cesium.js"></script>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.129/Build/Cesium/Cesium.js"></script>
 
   <style>
     :root {
@@ -281,12 +281,12 @@
       moon: {
         name: "月",
         assetId: 2684829,
-        dataName: "Cesium Moon"
+        dataName: "Cesium Moon 3D Tiles"
       },
       mars: {
         name: "火星",
         assetId: 3644333,
-        dataName: "Cesium Mars"
+        dataName: "Cesium Mars 3D Tiles"
       }
     };
 
@@ -335,24 +335,19 @@
     function getErrorDetails(error) {
       if (!error) return "詳細不明";
 
-      const parts = [];
+      const details = [];
 
-      if (error.name) parts.push(error.name);
-      if (error.message) parts.push(error.message);
-
-      if (error.statusCode) {
-        parts.push(`HTTP ${error.statusCode}`);
+      if (error.name) details.push(error.name);
+      if (error.message) details.push(error.message);
+      if (error.statusCode) details.push(`HTTP ${error.statusCode}`);
+      if (error.response?.status) {
+        details.push(`HTTP ${error.response.status}`);
+      }
+      if (error.cause?.message) {
+        details.push(`原因: ${error.cause.message}`);
       }
 
-      if (error.response && error.response.status) {
-        parts.push(`HTTP ${error.response.status}`);
-      }
-
-      if (error.cause && error.cause.message) {
-        parts.push(`原因: ${error.cause.message}`);
-      }
-
-      return parts.length ? parts.join(" / ") : String(error);
+      return details.length ? details.join(" / ") : String(error);
     }
 
     async function fetchIonToken() {
@@ -393,28 +388,23 @@
     }
 
     function removeCurrentTileset() {
-      if (!viewer) return;
+      if (!viewer || !currentTileset) return;
 
-      // 以前の天体の3D Tilesが残って重ならないように削除
-      for (let i = viewer.scene.primitives.length - 1; i >= 0; i--) {
-        const primitive = viewer.scene.primitives.get(i);
-
-        if (
-          primitive instanceof Cesium.Cesium3DTileset &&
-          !primitive.isDestroyed()
-        ) {
-          viewer.scene.primitives.remove(primitive);
-        }
+      if (!currentTileset.isDestroyed()) {
+        viewer.scene.primitives.remove(currentTileset);
       }
 
       currentTileset = null;
     }
 
     function removeImageryLayers() {
+      if (!viewer) {
+        imageryLayers = [];
+        return;
+      }
+
       for (const layer of imageryLayers) {
-        if (viewer) {
-          viewer.imageryLayers.remove(layer, true);
-        }
+        viewer.imageryLayers.remove(layer, true);
       }
 
       imageryLayers = [];
@@ -445,6 +435,7 @@
         !Number.isFinite(sphere.radius) ||
         sphere.radius <= 0
       ) {
+        console.warn("3D Tilesの範囲を取得できませんでした。");
         return;
       }
 
@@ -478,9 +469,7 @@
       }
 
       $("infoContent").textContent =
-        `天体: ${body.name}。` +
-        `データ: ${dataName}。` +
-        `状態: ${state}。`;
+        `天体: ${body.name}。データ: ${dataName}。状態: ${state}。`;
     }
 
     async function loadImagery() {
@@ -502,8 +491,11 @@
           )
         );
 
-        // 切り替え後に完了した古いリクエストは反映しない
-        if (requestId !== imageryGeneration || activeBody !== "earth") {
+        // 古いリクエストや、地球以外へ切り替えた後の結果は使わない
+        if (
+          requestId !== imageryGeneration ||
+          activeBody !== "earth"
+        ) {
           return;
         }
 
@@ -529,10 +521,8 @@
         );
 
         setStatus(
-          `${selected.name}を読み込めません。Asset ID: ${assetIds}。` +
-          `詳細: ${details}。Cesium ionでアセットの存在・種類・利用権限を確認してください。`
+          `${selected.name}を読み込めません。Asset ID: ${assetIds}。詳細: ${details}`
         );
-
         renderInfo(`地図の読み込み失敗: ${details}`);
       }
     }
@@ -543,9 +533,17 @@
       const body = BODIES[bodyKey];
 
       removeCurrentTileset();
-      updateControls();
 
-      viewer.scene.globe.show = bodyKey === "earth";
+      // 地球以外では、地球の地表と地図レイヤーを表示しない
+      if (bodyKey === "earth") {
+        viewer.scene.globe.show = true;
+      } else {
+        viewer.scene.globe.show = false;
+        imageryGeneration++;
+        removeImageryLayers();
+      }
+
+      updateControls();
       setStatus(`${body.dataName}を読み込み中…`);
       renderInfo("3Dデータ読み込み中");
 
@@ -554,7 +552,7 @@
           body.assetId
         );
 
-        // 切り替え後に完了した古い読み込み結果は表示しない
+        // 読み込み中に別の天体へ切り替わったら、古い結果を破棄
         if (requestId !== tilesetGeneration) {
           if (!tileset.isDestroyed()) {
             tileset.destroy();
@@ -566,21 +564,23 @@
 
         if (tileset.tileFailed) {
           tileset.tileFailed.addEventListener((event) => {
-            console.warn(
-              `${body.dataName}のタイル読み込み失敗:`,
-              event
-            );
+            console.warn(`${body.dataName}のタイル読み込み失敗:`, event);
           });
         }
 
         viewer.scene.primitives.add(tileset);
         currentTileset = tileset;
 
-        setStatus(`${body.dataName}を読み込みました。`);
-        renderInfo("読み込み完了");
-
-        if (bodyKey !== "earth") {
+        if (bodyKey === "earth") {
+          viewer.scene.globe.show = true;
+          setStatus(`${body.dataName}を読み込みました。`);
+          renderInfo("読み込み完了");
+        } else {
+          // 月・火星の3D Tiles全体へカメラを移動
+          viewer.scene.globe.show = false;
           focusTileset(tileset);
+          setStatus(`${body.name}を表示しています。`);
+          renderInfo("読み込み完了");
         }
       } catch (error) {
         if (requestId !== tilesetGeneration) return;
@@ -592,14 +592,39 @@
           error
         );
 
+        // 地球の読み込み失敗時だけ地球儀を表示
         viewer.scene.globe.show = bodyKey === "earth";
 
         setStatus(
-          `${body.dataName}を読み込めません。Asset ID: ${body.assetId}。` +
-          `詳細: ${details}。Cesium ionでアセットの存在・種類・利用権限を確認してください。`
+          `${body.dataName}を読み込めません。Asset ID: ${body.assetId}。詳細: ${details}`
         );
-
         renderInfo(`3Dデータ読み込み失敗: ${details}`);
+      }
+    }
+
+    async function switchBody(bodyKey) {
+      if (!Object.hasOwn(BODIES, bodyKey) || !viewer) return;
+
+      activeBody = bodyKey;
+      updateControls();
+
+      if (bodyKey === "earth") {
+        // 地球へ戻すと地球儀・地球の地図を再表示
+        viewer.scene.globe.show = true;
+        showEarthView();
+
+        await Promise.all([
+          loadActiveTileset(),
+          loadImagery()
+        ]);
+      } else {
+        // 月・火星では地球の地球儀と地図を消し、
+        // 選択した天体の3D Tilesだけに切り替える
+        viewer.scene.globe.show = false;
+        imageryGeneration++;
+        removeImageryLayers();
+
+        await loadActiveTileset();
       }
     }
 
@@ -632,10 +657,7 @@
         const result = results[0];
 
         if (activeBody !== "earth") {
-          activeBody = "earth";
-          viewer.scene.globe.show = true;
-          updateControls();
-          await Promise.all([loadActiveTileset(), loadImagery()]);
+          await switchBody("earth");
         }
 
         if (result.destination) {
@@ -650,10 +672,7 @@
         const details = getErrorDetails(error);
         console.error("場所検索エラー:", error);
 
-        setStatus(
-          `場所を検索できません。詳細: ${details}。` +
-          `Cesium ionトークンのGeocode権限を確認してください。`
-        );
+        setStatus(`場所を検索できません。詳細: ${details}`);
       } finally {
         $("searchButton").disabled = false;
       }
@@ -662,26 +681,16 @@
     function setupControls() {
       document.querySelectorAll("[data-body]").forEach((button) => {
         button.addEventListener("click", () => {
-          const body = button.dataset.body;
-          if (!Object.hasOwn(BODIES, body)) return;
-
-          activeBody = body;
-          updateControls();
-
-          if (body === "earth") {
-            viewer.scene.globe.show = true;
-            loadActiveTileset();
-            loadImagery();
-          } else {
-            viewer.scene.globe.show = false;
-            loadActiveTileset();
-          }
+          switchBody(button.dataset.body);
         });
       });
 
       $("imagerySelect").addEventListener("change", () => {
         updateMapDescription();
-        if (activeBody === "earth") loadImagery();
+
+        if (activeBody === "earth") {
+          loadImagery();
+        }
       });
 
       $("searchForm").addEventListener("submit", searchLocation);
@@ -746,10 +755,10 @@
       }
 
       viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 1);
-
       viewer.scene.globe.show = true;
       viewer.scene.globe.baseColor =
         Cesium.Color.fromCssColorString("#101722");
+      viewer.scene.backgroundColor = Cesium.Color.BLACK;
 
       const controller = viewer.scene.screenSpaceCameraController;
       controller.enableCollisionDetection = false;
@@ -759,7 +768,6 @@
 
       // ドラッグ後の回転の惰性を短くする
       controller.inertiaSpin = 0.25;
-
       controller.inertiaTranslate = 0.75;
       controller.inertiaZoom = 0.7;
 
