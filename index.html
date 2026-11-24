@@ -92,6 +92,11 @@
       outline: none;
     }
 
+    button:disabled {
+      cursor: wait;
+      opacity: .6;
+    }
+
     button.selected {
       color: #07111e;
       background: var(--accent);
@@ -150,12 +155,15 @@
       left: 12px;
       bottom: 18px;
       max-width: min(760px, calc(100vw - 24px));
+      max-height: 30vh;
+      overflow: auto;
       padding: 9px 12px;
       border: 1px solid var(--line);
       border-radius: 9px;
       color: var(--muted);
       background: var(--panel);
       pointer-events: none;
+      overflow-wrap: anywhere;
     }
 
     .panel {
@@ -306,7 +314,6 @@
       labels: {
         name: "文字・道路ラベルのみ",
         description: "航空写真を背景にして、その上へ地名や道路ラベルを重ねて表示します。",
-        // Labels Onlyは背景が透明のため、衛星画像の上に重ねる
         assetIds: [3830182, 3830185]
       }
     };
@@ -323,6 +330,29 @@
 
     function setStatus(message) {
       $("status").textContent = message;
+    }
+
+    function getErrorDetails(error) {
+      if (!error) return "詳細不明";
+
+      const parts = [];
+
+      if (error.name) parts.push(error.name);
+      if (error.message) parts.push(error.message);
+
+      if (error.statusCode) {
+        parts.push(`HTTP ${error.statusCode}`);
+      }
+
+      if (error.response && error.response.status) {
+        parts.push(`HTTP ${error.response.status}`);
+      }
+
+      if (error.cause && error.cause.message) {
+        parts.push(`原因: ${error.cause.message}`);
+      }
+
+      return parts.length ? parts.join(" / ") : String(error);
     }
 
     async function fetchIonToken() {
@@ -365,8 +395,7 @@
     function removeCurrentTileset() {
       if (!viewer) return;
 
-      // シーン内に残っている3D Tilesをすべて削除して、
-      // 地球・月・火星のデータが重なるのを防ぐ
+      // 以前の天体の3D Tilesが残って重ならないように削除
       for (let i = viewer.scene.primitives.length - 1; i >= 0; i--) {
         const primitive = viewer.scene.primitives.get(i);
 
@@ -387,6 +416,7 @@
           viewer.imageryLayers.remove(layer, true);
         }
       }
+
       imageryLayers = [];
     }
 
@@ -443,7 +473,8 @@
       let dataName = body.dataName;
 
       if (activeBody === "earth") {
-        dataName += ` / ${IMAGERY[$("imagerySelect").value].name}`;
+        const imagery = IMAGERY[$("imagerySelect").value];
+        if (imagery) dataName += ` / ${imagery.name}`;
       }
 
       $("infoContent").textContent =
@@ -489,11 +520,20 @@
       } catch (error) {
         if (requestId !== imageryGeneration) return;
 
-        console.error(`${selected.name}の読み込みエラー:`, error);
-        setStatus(
-          `${selected.name}を読み込めません。トークンの権限とAsset IDを確認してください。`
+        const details = getErrorDetails(error);
+        const assetIds = selected.assetIds.join(", ");
+
+        console.error(
+          `${selected.name}の読み込みエラー。Asset ID: ${assetIds}`,
+          error
         );
-        renderInfo("地図の読み込み失敗");
+
+        setStatus(
+          `${selected.name}を読み込めません。Asset ID: ${assetIds}。` +
+          `詳細: ${details}。Cesium ionでアセットの存在・種類・利用権限を確認してください。`
+        );
+
+        renderInfo(`地図の読み込み失敗: ${details}`);
       }
     }
 
@@ -522,12 +562,14 @@
           return;
         }
 
-        // 描画負荷を抑えて、ドラッグ操作を軽くする
         tileset.maximumScreenSpaceError = 16;
 
         if (tileset.tileFailed) {
           tileset.tileFailed.addEventListener((event) => {
-            console.warn(`${body.dataName}のタイル読み込み失敗:`, event);
+            console.warn(
+              `${body.dataName}のタイル読み込み失敗:`,
+              event
+            );
           });
         }
 
@@ -543,13 +585,21 @@
       } catch (error) {
         if (requestId !== tilesetGeneration) return;
 
-        console.error(`${body.dataName}の読み込みエラー:`, error);
-        viewer.scene.globe.show = true;
+        const details = getErrorDetails(error);
+
+        console.error(
+          `${body.dataName}の読み込みエラー。Asset ID: ${body.assetId}`,
+          error
+        );
+
+        viewer.scene.globe.show = bodyKey === "earth";
 
         setStatus(
-          `${body.dataName}を読み込めません。トークンの権限、Asset ID、アセットへのアクセス設定を確認してください。`
+          `${body.dataName}を読み込めません。Asset ID: ${body.assetId}。` +
+          `詳細: ${details}。Cesium ionでアセットの存在・種類・利用権限を確認してください。`
         );
-        renderInfo("3Dデータ読み込み失敗");
+
+        renderInfo(`3Dデータ読み込み失敗: ${details}`);
       }
     }
 
@@ -579,10 +629,8 @@
           return;
         }
 
-        // 検索結果の最初の候補へ移動
         const result = results[0];
 
-        // 月・火星表示中に検索した場合は地球へ戻す
         if (activeBody !== "earth") {
           activeBody = "earth";
           viewer.scene.globe.show = true;
@@ -599,9 +647,12 @@
 
         setStatus(`「${result.displayName || query}」を表示しています。`);
       } catch (error) {
+        const details = getErrorDetails(error);
         console.error("場所検索エラー:", error);
+
         setStatus(
-          "場所を検索できません。Cesium ionトークンのGeocode権限を確認してください。"
+          `場所を検索できません。詳細: ${details}。` +
+          `Cesium ionトークンのGeocode権限を確認してください。`
         );
       } finally {
         $("searchButton").disabled = false;
@@ -657,9 +708,12 @@
       try {
         Cesium.Ion.defaultAccessToken = await fetchIonToken();
       } catch (error) {
+        const details = getErrorDetails(error);
         console.error("Cesium ionトークンの取得に失敗しました:", error);
+
         setStatus(
-          "トークンを取得できません。Vercelの環境変数を確認してください。"
+          `トークンを取得できません。詳細: ${details}。` +
+          `/api/cesium-token とサーバー側の環境変数を確認してください。`
         );
         return;
       }
@@ -685,8 +739,9 @@
           scene: viewer.scene
         });
       } catch (error) {
+        const details = getErrorDetails(error);
         console.error("Cesiumの初期化エラー:", error);
-        setStatus("Cesiumを初期化できませんでした。");
+        setStatus(`Cesiumを初期化できませんでした。詳細: ${details}`);
         return;
       }
 
@@ -702,7 +757,7 @@
       // ドラッグ中の回転を速くする
       controller.maximumMovementRatio = 0.2;
 
-      // ドラッグを離した後の回転の惰性を短くする
+      // ドラッグ後の回転の惰性を短くする
       controller.inertiaSpin = 0.25;
 
       controller.inertiaTranslate = 0.75;
@@ -711,7 +766,6 @@
       setupControls();
       updateControls();
 
-      // 最初は地球全体を表示
       showEarthView();
 
       await Promise.all([
