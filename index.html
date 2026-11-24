@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Planet Explorer</title>
 
-  <!-- CesiumJS 1.132 -->
   <link
     rel="stylesheet"
     href="https://cesium.com/downloads/cesiumjs/releases/1.132/Build/Cesium/Widgets/widgets.css">
@@ -86,17 +85,17 @@
       font: inherit;
     }
 
-    button { cursor: pointer; white-space: nowrap; }
+    button {
+      cursor: pointer;
+      white-space: nowrap;
+    }
 
     button:hover, input:focus, select:focus {
       border-color: rgba(118, 186, 255, .8);
       outline: none;
     }
 
-    button:disabled {
-      cursor: wait;
-      opacity: .6;
-    }
+    button:disabled { cursor: wait; opacity: .6; }
 
     button.selected {
       color: #07111e;
@@ -114,7 +113,6 @@
     .search-form input {
       min-width: 0;
       width: 190px;
-      background: rgba(27, 39, 58, .96);
     }
 
     .search-form button { background: #17314c; }
@@ -131,7 +129,7 @@
     }
 
     .map-picker select {
-      max-width: 270px;
+      max-width: 280px;
       cursor: pointer;
     }
 
@@ -165,6 +163,7 @@
       background: var(--panel);
       pointer-events: none;
       overflow-wrap: anywhere;
+      white-space: pre-wrap;
     }
 
     .panel {
@@ -194,6 +193,7 @@
       color: var(--muted);
       font-size: 12px;
       overflow-wrap: anywhere;
+      white-space: pre-wrap;
     }
 
     @media (max-width: 900px) {
@@ -206,9 +206,7 @@
     @media (max-width: 600px) {
       .brand { font-size: 12px; }
 
-      .topbar button,
-      .topbar input,
-      .topbar select {
+      .topbar button, .topbar input, .topbar select {
         padding: 6px 8px;
         font-size: 12px;
       }
@@ -245,10 +243,10 @@
       <label for="imagerySelect">地図の見た目</label>
       <select id="imagerySelect">
         <option value="satelliteLabels">航空写真（地名・道路あり）</option>
-        <option value="satellite">航空写真のみ（文字なし）</option>
-        <option value="roadmap">通常の地図（道路マップ）</option>
-        <option value="contour">地形図（山の起伏・等高線）</option>
-        <option value="labels">文字・道路ラベルのみ（航空写真に重ねる）</option>
+        <option value="satellite">航空写真（文字なし）</option>
+        <option value="roadmap">道路マップ</option>
+        <option value="labelsOnly">ラベルのみ</option>
+        <option value="contour">等高線</option>
       </select>
     </div>
 
@@ -291,31 +289,32 @@
       }
     };
 
+    // 提示されたCesium ionのImagery Asset ID
     const IMAGERY = {
       satelliteLabels: {
         name: "航空写真（地名・道路あり）",
-        description: "航空写真の上に道路や地名を表示します。",
-        assetIds: [3830183]
+        description: "Google Mapsの航空写真に地名・道路ラベルを表示します。",
+        assetId: 3830183
       },
       satellite: {
-        name: "航空写真のみ（文字なし）",
-        description: "文字や道路線のない航空写真です。",
-        assetIds: [3830182]
+        name: "航空写真（文字なし）",
+        description: "Google Mapsのラベルなし航空写真を表示します。",
+        assetId: 3830182
       },
       roadmap: {
-        name: "通常の地図（道路マップ）",
-        description: "道路、駅、施設名などを見やすい地図で確認できます。",
-        assetIds: [3830184]
+        name: "道路マップ",
+        description: "Google Mapsの道路マップを表示します。",
+        assetId: 3830184
+      },
+      labelsOnly: {
+        name: "ラベルのみ",
+        description: "Google Mapsの地名・道路ラベルを表示します。",
+        assetId: 3830185
       },
       contour: {
-        name: "地形図（山の起伏・等高線）",
-        description: "陰影や等高線で、山・谷などの地形を確認できます。",
-        assetIds: [3830186]
-      },
-      labels: {
-        name: "文字・道路ラベルのみ",
-        description: "航空写真を背景にして、地名や道路ラベルを重ねます。",
-        assetIds: [3830182, 3830185]
+        name: "等高線",
+        description: "Google Mapsの等高線オルソ画像を表示します。",
+        assetId: 3830186
       }
     };
 
@@ -325,7 +324,7 @@
     let ionGeocoder = null;
     let activeBody = "earth";
     let currentTileset = null;
-    let imageryLayers = [];
+    let imageryLayer = null;
     let tilesetGeneration = 0;
     let imageryGeneration = 0;
 
@@ -337,11 +336,14 @@
       if (!error) return "詳細不明";
 
       const details = [];
-      if (error.name) details.push(error.name);
-      if (error.message) details.push(error.message);
-      if (error.statusCode) details.push(`HTTP ${error.statusCode}`);
+      if (error.name) details.push(`名前: ${error.name}`);
+      if (error.message) details.push(`内容: ${error.message}`);
+      if (error.statusCode) details.push(`HTTP: ${error.statusCode}`);
       if (error.response?.status) {
-        details.push(`HTTP ${error.response.status}`);
+        details.push(`HTTP: ${error.response.status}`);
+      }
+      if (error.response?.statusText) {
+        details.push(`応答: ${error.response.statusText}`);
       }
       if (error.cause?.message) {
         details.push(`原因: ${error.cause.message}`);
@@ -390,24 +392,30 @@
     function removeCurrentTileset() {
       if (!viewer || !currentTileset) return;
 
-      if (!currentTileset.isDestroyed()) {
-        viewer.scene.primitives.remove(currentTileset);
+      try {
+        if (!currentTileset.isDestroyed()) {
+          viewer.scene.primitives.remove(currentTileset);
+        }
+      } catch (error) {
+        console.warn("前の3D Tilesを削除できませんでした:", error);
       }
 
       currentTileset = null;
     }
 
-    function removeImageryLayers() {
-      if (!viewer) {
-        imageryLayers = [];
+    function removeImageryLayer() {
+      if (!viewer || !imageryLayer) {
+        imageryLayer = null;
         return;
       }
 
-      for (const layer of imageryLayers) {
-        viewer.imageryLayers.remove(layer, true);
+      try {
+        viewer.imageryLayers.remove(imageryLayer, true);
+      } catch (error) {
+        console.warn("画像レイヤーを削除できませんでした:", error);
       }
 
-      imageryLayers = [];
+      imageryLayer = null;
     }
 
     function showEarthView() {
@@ -425,7 +433,7 @@
     }
 
     function focusTileset(tileset) {
-      if (!viewer || !tileset) return;
+      if (!viewer || !tileset) return false;
 
       const sphere = tileset.boundingSphere;
 
@@ -435,8 +443,8 @@
         !Number.isFinite(sphere.radius) ||
         sphere.radius <= 0
       ) {
-        console.warn("3D Tilesの範囲を取得できませんでした。");
-        return;
+        console.error("3D TilesのboundingSphereが不正です:", sphere);
+        return false;
       }
 
       viewer.camera.flyToBoundingSphere(sphere, {
@@ -447,6 +455,8 @@
           Math.max(sphere.radius * 2.8, 1000)
         )
       });
+
+      return true;
     }
 
     function goHome() {
@@ -456,6 +466,8 @@
         showEarthView();
       } else if (currentTileset) {
         focusTileset(currentTileset);
+      } else {
+        setStatus("表示できる3D Tilesがありません。読み込み状態を確認してください。");
       }
     }
 
@@ -465,11 +477,16 @@
 
       if (activeBody === "earth") {
         const imagery = IMAGERY[$("imagerySelect").value];
-        if (imagery) dataName += ` / ${imagery.name}`;
+        if (imagery) {
+          dataName += ` / ${imagery.name} (Asset ID: ${imagery.assetId})`;
+        }
       }
 
       $("infoContent").textContent =
-        `天体: ${body.name}。データ: ${dataName}。状態: ${state}。`;
+        `天体: ${body.name}\n` +
+        `3D Tiles Asset ID: ${body.assetId}\n` +
+        `データ: ${dataName}\n` +
+        `状態: ${state}`;
     }
 
     async function loadImagery() {
@@ -477,7 +494,6 @@
 
       const requestId = ++imageryGeneration;
       const selected = IMAGERY[$("imagerySelect").value];
-
       if (!selected) return;
 
       updateMapDescription();
@@ -485,58 +501,52 @@
       renderInfo("地図を読み込み中");
 
       try {
-        const providers = await Promise.all(
-          selected.assetIds.map((assetId) =>
-            Cesium.IonImageryProvider.fromAssetId(assetId)
-          )
-        );
+        const provider =
+          await Cesium.IonImageryProvider.fromAssetId(selected.assetId);
 
-        if (
-          requestId !== imageryGeneration ||
-          activeBody !== "earth"
-        ) {
+        if (requestId !== imageryGeneration || activeBody !== "earth") {
           return;
         }
 
-        removeImageryLayers();
-
-        for (const provider of providers) {
-          imageryLayers.push(
-            viewer.imageryLayers.addImageryProvider(provider)
-          );
-        }
+        removeImageryLayer();
+        imageryLayer = viewer.imageryLayers.addImageryProvider(provider);
 
         setStatus(`${selected.name}を表示しています。`);
-        renderInfo("読み込み完了");
+        renderInfo("地図の読み込み完了");
       } catch (error) {
         if (requestId !== imageryGeneration) return;
 
-        const details = getErrorDetails(error);
-        console.error("地図レイヤーの読み込みエラー:", error);
-
-        setStatus(
-          `${selected.name}を読み込めません。` +
-          `Asset ID: ${selected.assetIds.join(", ")}。詳細: ${details}`
+        console.error(
+          `画像レイヤーの読み込みエラー。Asset ID: ${selected.assetId}`,
+          error
         );
+
+        const details = getErrorDetails(error);
+        setStatus(
+          `${selected.name}を読み込めません。\n` +
+          `Asset ID: ${selected.assetId}\n${details}\n` +
+          "Assetの有効性とトークンの利用権限を確認してください。"
+        );
+
         renderInfo(`地図の読み込み失敗: ${details}`);
       }
     }
 
     async function loadActiveTileset() {
+      if (!viewer) return;
+
       const requestId = ++tilesetGeneration;
       const bodyKey = activeBody;
       const body = BODIES[bodyKey];
+      const isEarth = bodyKey === "earth";
 
       removeCurrentTileset();
-
-      // 地球以外では、地球の地表・地図・大気を隠す
-      const isEarth = bodyKey === "earth";
       viewer.scene.globe.show = isEarth;
       viewer.scene.skyAtmosphere.show = isEarth;
 
       if (!isEarth) {
         imageryGeneration++;
-        removeImageryLayers();
+        removeImageryLayer();
       }
 
       updateControls();
@@ -548,25 +558,24 @@
           body.assetId
         );
 
-        // 読み込み中に別の天体へ切り替わっていたら、古い結果を破棄
         if (requestId !== tilesetGeneration) {
           if (!tileset.isDestroyed()) tileset.destroy();
           return;
         }
 
         tileset.show = true;
-        tileset.maximumScreenSpaceError = 16;
+        tileset.maximumScreenSpaceError = 8;
 
         if (tileset.tileFailed) {
           tileset.tileFailed.addEventListener((event) => {
-            console.warn(`${body.dataName}のタイル読み込み失敗:`, event);
+            console.error(`${body.dataName}のタイル読み込み失敗:`, event);
           });
         }
 
         viewer.scene.primitives.add(tileset);
         currentTileset = tileset;
 
-        if (bodyKey === "earth") {
+        if (isEarth) {
           viewer.scene.globe.show = true;
           viewer.scene.skyAtmosphere.show = true;
           setStatus(`${body.dataName}を読み込みました。`);
@@ -574,37 +583,39 @@
           viewer.scene.globe.show = false;
           viewer.scene.skyAtmosphere.show = false;
 
-          // 月・火星の3D Tiles全体へカメラを移動
-          focusTileset(tileset);
-          setStatus(`${body.name}を表示しています。`);
+          const cameraMoved = focusTileset(tileset);
+          setStatus(
+            cameraMoved
+              ? `${body.name}の3D Tilesを読み込みました。\n全体表示へカメラを移動しました。`
+              : `${body.name}の3D Tilesは読み込みましたが、表示範囲を取得できませんでした。`
+          );
         }
 
-        renderInfo("読み込み完了");
+        renderInfo("3Dデータの読み込み完了");
       } catch (error) {
         if (requestId !== tilesetGeneration) return;
 
-        const details = getErrorDetails(error);
         console.error(
           `${body.dataName}の読み込みエラー。Asset ID: ${body.assetId}`,
           error
         );
 
-        viewer.scene.globe.show = bodyKey === "earth";
-        viewer.scene.skyAtmosphere.show = bodyKey === "earth";
+        const details = getErrorDetails(error);
+        viewer.scene.globe.show = isEarth;
+        viewer.scene.skyAtmosphere.show = isEarth;
 
         setStatus(
-          `${body.dataName}を読み込めません。` +
-          `Asset ID: ${body.assetId}。詳細: ${details}`
+          `${body.dataName}を読み込めません。\n` +
+          `Asset ID: ${body.assetId}\n${details}\n` +
+          "Assetの有効性とトークンの利用権限を確認してください。"
         );
+
         renderInfo(`3Dデータ読み込み失敗: ${details}`);
       }
     }
 
     async function switchBody(bodyKey) {
-      if (
-        !Object.prototype.hasOwnProperty.call(BODIES, bodyKey) ||
-        !viewer
-      ) {
+      if (!Object.prototype.hasOwnProperty.call(BODIES, bodyKey) || !viewer) {
         return;
       }
 
@@ -624,8 +635,7 @@
         viewer.scene.globe.show = false;
         viewer.scene.skyAtmosphere.show = false;
         imageryGeneration++;
-        removeImageryLayers();
-
+        removeImageryLayer();
         await loadActiveTileset();
       }
     }
@@ -634,7 +644,6 @@
       event.preventDefault();
 
       const query = $("searchInput").value.trim();
-
       if (!query) {
         setStatus("検索する場所を入力してください。");
         return;
@@ -656,12 +665,11 @@
           return;
         }
 
-        const result = results[0];
-
         if (activeBody !== "earth") {
           await switchBody("earth");
         }
 
+        const result = results[0];
         if (result.destination) {
           viewer.camera.flyTo({
             destination: result.destination,
@@ -671,9 +679,8 @@
 
         setStatus(`「${result.displayName || query}」を表示しています。`);
       } catch (error) {
-        const details = getErrorDetails(error);
         console.error("場所検索エラー:", error);
-        setStatus(`場所を検索できません。詳細: ${details}`);
+        setStatus(`場所を検索できません。\n${getErrorDetails(error)}`);
       } finally {
         $("searchButton").disabled = false;
       }
@@ -706,7 +713,7 @@
 
     async function start() {
       if (!window.Cesium) {
-        setStatus("CesiumJSを読み込めません。ネット接続を確認してください。");
+        setStatus("CesiumJSを読み込めません。ネット接続と配信URLを確認してください。");
         return;
       }
 
@@ -715,12 +722,10 @@
       try {
         Cesium.Ion.defaultAccessToken = await fetchIonToken();
       } catch (error) {
-        const details = getErrorDetails(error);
         console.error("Cesium ionトークン取得エラー:", error);
-
         setStatus(
-          `トークンを取得できません。詳細: ${details}。` +
-          `/api/cesium-token とサーバー側の環境変数を確認してください。`
+          `トークンを取得できません。\n${getErrorDetails(error)}\n` +
+          "/api/cesium-token とサーバー側の環境変数を確認してください。"
         );
         return;
       }
@@ -746,9 +751,8 @@
           scene: viewer.scene
         });
       } catch (error) {
-        const details = getErrorDetails(error);
         console.error("Cesium初期化エラー:", error);
-        setStatus(`Cesiumを初期化できませんでした。詳細: ${details}`);
+        setStatus(`Cesiumを初期化できませんでした。\n${getErrorDetails(error)}`);
         return;
       }
 
