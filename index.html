@@ -203,14 +203,11 @@
         <option value="mars">火星</option>
         <option value="mercury">水星</option>
         <option value="venus">金星</option>
-        <option value="ceres">ケレス</option>
         <option value="jupiter">木星</option>
         <option value="saturn">土星</option>
         <option value="uranus">天王星</option>
         <option value="neptune">海王星</option>
         <option value="sun">太陽</option>
-        <option value="vesta">ベスタ</option>
-        <option value="ryugu">リュウグウ</option>
       </select>
     </div>
 
@@ -243,7 +240,8 @@
   <script>
     "use strict";
 
-    // sizeRatio は地球の直径を 1 とした、おおよその直径比です。
+    // sizeRatio は地球の直径を 1 とした概算比率です。
+    // 小惑星は含めていません。
     const BODIES = {
       earth: {
         name: "地球",
@@ -275,12 +273,6 @@
         dataName: "venus Mesh",
         sizeRatio: 0.949
       },
-      ceres: {
-        name: "ケレス",
-        assetId: 6214892,
-        dataName: "ceres Mesh",
-        sizeRatio: 0.074
-      },
       jupiter: {
         name: "木星",
         assetId: 6214872,
@@ -310,18 +302,6 @@
         assetId: 6214860,
         dataName: "sun Mesh",
         sizeRatio: 109.2
-      },
-      vesta: {
-        name: "ベスタ",
-        assetId: 6214890,
-        dataName: "vesta Mesh",
-        sizeRatio: 0.041
-      },
-      ryugu: {
-        name: "リュウグウ",
-        assetId: 6214956,
-        dataName: "ryugu Mesh",
-        sizeRatio: 0.000071
       }
     };
 
@@ -341,6 +321,7 @@
       if (!error) return "詳細不明";
 
       const details = [];
+
       if (error.name) details.push(`名前: ${error.name}`);
       if (error.message) details.push(`内容: ${error.message}`);
 
@@ -351,18 +332,14 @@
         details.push(`応答: ${error.response.statusText}`);
       }
 
-      // Cesium ion のエラー本文が取得できる場合は表示する。
-      const response = error.response;
-      if (typeof response === "string" && response.trim()) {
-        details.push(`応答本文: ${response.slice(0, 500)}`);
-      } else if (response && typeof response === "object") {
+      if (error.response && typeof error.response === "object") {
         try {
-          const body = JSON.stringify(response);
+          const body = JSON.stringify(error.response);
           if (body && body !== "{}") {
             details.push(`応答本文: ${body.slice(0, 500)}`);
           }
         } catch (_) {
-          // エラー内容の整形に失敗した場合は無視します。
+          // エラー本文の整形に失敗しても処理を続けます。
         }
       }
 
@@ -371,6 +348,14 @@
       }
 
       return details.length ? details.join(" / ") : String(error);
+    }
+
+    function looksLikeAuthError(error) {
+      const details = getErrorDetails(error).toLowerCase();
+      return details.includes("401") ||
+        details.includes("invalid_token") ||
+        details.includes("invalid access token") ||
+        details.includes("unauthorized");
     }
 
     async function fetchIonToken() {
@@ -387,7 +372,9 @@
       const data = await response.json();
 
       if (typeof data.token !== "string" || !data.token.trim()) {
-        throw new Error("トークンAPIから有効な token が返されませんでした。");
+        throw new Error(
+          "/api/cesium-token から有効な token が返されませんでした。"
+        );
       }
 
       return data.token.trim();
@@ -400,7 +387,7 @@
         `天体: ${body.name}\n` +
         `3D Tiles Asset ID: ${body.assetId}\n` +
         `データ: ${body.dataName}\n` +
-        `地球に対する大きさ: ${(body.sizeRatio * 100).toPrecision(4)}%\n` +
+        `地球に対するサイズ比: ${body.sizeRatio}\n` +
         `状態: ${state}`;
     }
 
@@ -432,29 +419,47 @@
       });
     }
 
-    function focusTileset(tileset) {
-      if (!viewer || !tileset) return false;
+    function makeCenteredScaleMatrix(center, scale) {
+      // 中心点を原点へ移動 → スケール → 元の位置へ戻す
+      const toOrigin = Cesium.Matrix4.fromTranslation(
+        Cesium.Cartesian3.negate(center, new Cesium.Cartesian3())
+      );
 
-      const sphere = tileset.boundingSphere;
+      const scaleMatrix = Cesium.Matrix4.fromUniformScale(scale);
 
-      if (
-        !sphere ||
-        !sphere.center ||
-        !Number.isFinite(sphere.radius) ||
-        sphere.radius <= 0
-      ) {
-        console.error("3D TilesのboundingSphereが不正です:", sphere);
+      const fromOrigin = Cesium.Matrix4.fromTranslation(center);
+
+      const scaleThenMoveToOrigin = Cesium.Matrix4.multiply(
+        scaleMatrix,
+        toOrigin,
+        new Cesium.Matrix4()
+      );
+
+      return Cesium.Matrix4.multiply(
+        fromOrigin,
+        scaleThenMoveToOrigin,
+        new Cesium.Matrix4()
+      );
+    }
+
+    function focusSphere(sphere, scaleRatio = 1) {
+      if (!viewer || !sphere || !sphere.center || !Number.isFinite(sphere.radius)) {
         return false;
       }
 
-      viewer.camera.flyToBoundingSphere(sphere, {
-        duration: 1.5,
-        offset: new Cesium.HeadingPitchRange(
-          0,
-          Cesium.Math.toRadians(-25),
-          Math.max(sphere.radius * 2.8, 10)
-        )
-      });
+      const radius = Math.max(sphere.radius * scaleRatio, 1);
+
+      viewer.camera.flyToBoundingSphere(
+        new Cesium.BoundingSphere(sphere.center, radius),
+        {
+          duration: 1.4,
+          offset: new Cesium.HeadingPitchRange(
+            0,
+            Cesium.Math.toRadians(-20),
+            Math.max(radius * 2.8, 10)
+          )
+        }
+      );
 
       return true;
     }
@@ -464,11 +469,17 @@
 
       if (activeBody === "earth") {
         showEarthView();
-      } else if (currentTileset) {
-        focusTileset(currentTileset);
-      } else {
-        setStatus("表示できる3D Tilesがありません。読み込み状態を確認してください。");
+        return;
       }
+
+      if (currentTileset) {
+        const sphere = currentTileset.boundingSphere;
+        const ratio = BODIES[activeBody].sizeRatio;
+
+        if (focusSphere(sphere, ratio)) return;
+      }
+
+      setStatus("表示できる3D Tilesがありません。読み込み状態を確認してください。");
     }
 
     async function loadActiveTileset() {
@@ -492,7 +503,7 @@
           body.assetId
         );
 
-        // 読み込み中に天体が切り替わった場合、古い Tileset は破棄します。
+        // 読み込み中に別の天体へ切り替えられた場合は、古い Tileset を破棄
         if (requestId !== tilesetGeneration) {
           if (!tileset.isDestroyed()) tileset.destroy();
           return;
@@ -501,8 +512,28 @@
         tileset.show = true;
         tileset.maximumScreenSpaceError = 8;
 
-        // 地球を基準とした大きさの調整
-        tileset.modelMatrix = Cesium.Matrix4.fromUniformScale(body.sizeRatio);
+        const originalSphere = Cesium.BoundingSphere.clone(
+          tileset.boundingSphere,
+          new Cesium.BoundingSphere()
+        );
+
+        if (
+          !originalSphere ||
+          !originalSphere.center ||
+          !Number.isFinite(originalSphere.radius) ||
+          originalSphere.radius <= 0
+        ) {
+          throw new Error("Tilesetの表示範囲を取得できませんでした。");
+        }
+
+        // Tileset の中心を保ってスケールします。
+        // 地理座標の原点から拡大縮小する変換は避けています。
+        if (body.sizeRatio !== 1) {
+          tileset.modelMatrix = makeCenteredScaleMatrix(
+            originalSphere.center,
+            body.sizeRatio
+          );
+        }
 
         if (tileset.tileFailed) {
           tileset.tileFailed.addEventListener((event) => {
@@ -522,11 +553,15 @@
           viewer.scene.globe.show = false;
           viewer.scene.skyAtmosphere.show = false;
 
-          const cameraMoved = focusTileset(tileset);
+          const cameraMoved = focusSphere(
+            originalSphere,
+            body.sizeRatio
+          );
+
           setStatus(
             cameraMoved
               ? `${body.name}の3D Tilesを表示しています。`
-              : `${body.name}の3D Tilesは読み込みましたが、表示範囲を取得できませんでした。`
+              : `${body.name}の表示範囲を取得できませんでした。`
           );
         }
 
@@ -539,14 +574,19 @@
           error
         );
 
-        const details = getErrorDetails(error);
         viewer.scene.globe.show = isEarth;
         viewer.scene.skyAtmosphere.show = isEarth;
 
+        const details = getErrorDetails(error);
+        const authHint = looksLikeAuthError(error)
+          ? "\nCesium ionトークンが無効、期限切れ、またはAssetへのアクセス権がありません。"
+          : "";
+
         setStatus(
           `${body.dataName}を読み込めません。\n` +
-          `Asset ID: ${body.assetId}\n${details}\n` +
-          "トークンが有効か、Assetへのアクセス権があるか確認してください。"
+          `Asset ID: ${body.assetId}\n` +
+          `${details}${authHint}\n` +
+          "Cesium ionのトークンとAssetの利用権限を確認してください。"
         );
 
         renderInfo(`3Dデータ読み込み失敗: ${details}`);
@@ -630,7 +670,9 @@
 
     async function start() {
       if (!window.Cesium) {
-        setStatus("CesiumJSを読み込めません。ネット接続と配信URLを確認してください。");
+        setStatus(
+          "CesiumJSを読み込めません。ネット接続とCesiumJSの配信URLを確認してください。"
+        );
         return;
       }
 
