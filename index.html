@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Planet Explorer</title>
+  <title>space-map</title>
+  <link rel="icon" href="data:,">
 
   <link
     rel="stylesheet"
@@ -67,15 +68,6 @@
 
     .brand span { color: var(--accent); }
 
-    .button-row {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 7px;
-    }
-
-    .top-actions { margin-left: auto; }
-
     button, input, select {
       color: var(--text);
       background: rgba(27, 39, 58, .96);
@@ -97,18 +89,13 @@
 
     button:disabled { cursor: wait; opacity: .6; }
 
-    button.selected {
-      color: #07111e;
-      background: var(--accent);
-      border-color: var(--accent);
-      font-weight: 700;
+    .search-form, .body-picker {
+      display: flex;
+      align-items: center;
+      gap: 7px;
     }
 
-    .search-form {
-      display: flex;
-      gap: 6px;
-      min-width: 230px;
-    }
+    .search-form { min-width: 230px; }
 
     .search-form input {
       min-width: 0;
@@ -117,35 +104,20 @@
 
     .search-form button { background: #17314c; }
 
-    .map-picker {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-    }
-
-    .map-picker label {
+    .body-picker label {
       color: var(--muted);
       white-space: nowrap;
     }
 
-    .map-picker select {
-      max-width: 280px;
+    .body-picker select {
+      max-width: min(320px, 45vw);
       cursor: pointer;
     }
 
-    .map-description {
-      position: absolute;
-      z-index: 7;
-      top: 68px;
-      left: 12px;
-      max-width: min(440px, calc(100vw - 24px));
-      padding: 8px 11px;
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      color: var(--muted);
-      background: var(--panel);
-      pointer-events: none;
-      font-size: 12px;
+    .top-actions {
+      display: flex;
+      gap: 7px;
+      margin-left: auto;
     }
 
     .status {
@@ -169,7 +141,7 @@
     .panel {
       position: absolute;
       z-index: 8;
-      top: 125px;
+      top: 76px;
       right: 12px;
       width: min(380px, calc(100vw - 24px));
       padding: 14px;
@@ -212,23 +184,35 @@
       }
 
       .search-form input { width: min(170px, 42vw); }
-      .map-picker { flex-wrap: wrap; }
-      .map-picker select { max-width: calc(100vw - 24px); }
-      .map-description { top: 125px; }
-      .panel { top: 175px; }
+      .body-picker { flex-wrap: wrap; }
+      .body-picker select { max-width: calc(100vw - 24px); }
+      .panel { top: 125px; }
     }
   </style>
 </head>
 
 <body>
   <header class="topbar">
-    <div class="brand">PLANET <span>EXPLORER</span></div>
+    <div class="brand">SPACE<span>MAP</span></div>
 
-    <nav class="button-row" aria-label="天体の切り替え">
-      <button type="button" data-body="earth" class="selected">地球</button>
-      <button type="button" data-body="moon">月</button>
-      <button type="button" data-body="mars">火星</button>
-    </nav>
+    <div class="body-picker">
+      <label for="bodySelect">天体</label>
+      <select id="bodySelect" aria-label="表示する天体">
+        <option value="earth">地球</option>
+        <option value="moon">月</option>
+        <option value="mars">火星</option>
+        <option value="mercury">水星</option>
+        <option value="venus">金星</option>
+        <option value="ceres">ケレス</option>
+        <option value="jupiter">木星</option>
+        <option value="saturn">土星</option>
+        <option value="uranus">天王星</option>
+        <option value="neptune">海王星</option>
+        <option value="sun">太陽</option>
+        <option value="vesta">ベスタ</option>
+        <option value="ryugu">リュウグウ</option>
+      </select>
+    </div>
 
     <form id="searchForm" class="search-form" role="search">
       <input
@@ -239,30 +223,18 @@
       <button id="searchButton" type="submit">検索</button>
     </form>
 
-    <div class="map-picker">
-      <label for="imagerySelect">地図の見た目</label>
-      <select id="imagerySelect">
-        <option value="satelliteLabels">航空写真（地名・道路あり）</option>
-        <option value="satellite">航空写真（文字なし）</option>
-        <option value="roadmap">道路マップ</option>
-        <option value="labelsOnly">ラベルのみ</option>
-        <option value="contour">等高線</option>
-      </select>
-    </div>
-
-    <div class="button-row top-actions">
+    <div class="top-actions">
       <button type="button" id="homeButton">全体表示</button>
-      <button type="button" id="infoButton">データ情報</button>
+      <button type="button" id="infoButton">情報</button>
     </div>
   </header>
 
-  <div id="mapDescription" class="map-description"></div>
   <div id="cesiumContainer" aria-label="天体の3D表示"></div>
   <div id="status" class="status" role="status">初期化中…</div>
 
   <aside id="infoPanel" class="panel" hidden>
     <div class="panel-heading">
-      <strong>データ情報</strong>
+      <strong>情報</strong>
       <button type="button" id="closeInfo" aria-label="閉じる">×</button>
     </div>
     <div id="infoContent" class="subtle"></div>
@@ -271,50 +243,85 @@
   <script>
     "use strict";
 
+    // sizeRatio は地球の直径を 1 とした、おおよその直径比です。
     const BODIES = {
       earth: {
         name: "地球",
         assetId: 2275207,
-        dataName: "Google Photorealistic 3D Tiles"
+        dataName: "Google Photorealistic 3D Tiles",
+        sizeRatio: 1
       },
       moon: {
         name: "月",
         assetId: 2684829,
-        dataName: "Cesium Moon 3D Tiles"
+        dataName: "Cesium Moon 3D Tiles",
+        sizeRatio: 0.273
       },
       mars: {
         name: "火星",
         assetId: 3644333,
-        dataName: "Cesium Mars 3D Tiles"
-      }
-    };
-
-    // 提示されたCesium ionのImagery Asset ID
-    const IMAGERY = {
-      satelliteLabels: {
-        name: "航空写真（地名・道路あり）",
-        description: "Google Mapsの航空写真に地名・道路ラベルを表示します。",
-        assetId: 3830183
+        dataName: "Cesium Mars 3D Tiles",
+        sizeRatio: 0.532
       },
-      satellite: {
-        name: "航空写真（文字なし）",
-        description: "Google Mapsのラベルなし航空写真を表示します。",
-        assetId: 3830182
+      mercury: {
+        name: "水星",
+        assetId: 6214878,
+        dataName: "mercury Mesh",
+        sizeRatio: 0.383
       },
-      roadmap: {
-        name: "道路マップ",
-        description: "Google Mapsの道路マップを表示します。",
-        assetId: 3830184
+      venus: {
+        name: "金星",
+        assetId: 6214874,
+        dataName: "venus Mesh",
+        sizeRatio: 0.949
       },
-      labelsOnly: {
-        name: "ラベルのみ",
-        description: "Google Mapsの地名・道路ラベルを表示します。",
-        assetId: 3830185
+      ceres: {
+        name: "ケレス",
+        assetId: 6214892,
+        dataName: "ceres Mesh",
+        sizeRatio: 0.074
       },
-      contour: {
-        name: "等高線",
-        description: "Google Mapsの等高線オルソ画像を表示します。",
-        assetId: 3830186
+      jupiter: {
+        name: "木星",
+        assetId: 6214872,
+        dataName: "jupiter Mesh",
+        sizeRatio: 10.97
+      },
+      saturn: {
+        name: "土星",
+        assetId: 6214870,
+        dataName: "saturn Mesh",
+        sizeRatio: 9.14
+      },
+      uranus: {
+        name: "天王星",
+        assetId: 6214868,
+        dataName: "uranus Mesh",
+        sizeRatio: 3.98
+      },
+      neptune: {
+        name: "海王星",
+        assetId: 6214866,
+        dataName: "neptune Mesh",
+        sizeRatio: 3.86
+      },
+      sun: {
+        name: "太陽",
+        assetId: 6214860,
+        dataName: "sun Mesh",
+        sizeRatio: 109.2
+      },
+      vesta: {
+        name: "ベスタ",
+        assetId: 6214890,
+        dataName: "vesta Mesh",
+        sizeRatio: 0.041
+      },
+      ryugu: {
+        name: "リュウグウ",
+        assetId: 6214956,
+        dataName: "ryugu Mesh",
+        sizeRatio: 0.000071
       }
     };
 
@@ -324,9 +331,7 @@
     let ionGeocoder = null;
     let activeBody = "earth";
     let currentTileset = null;
-    let imageryLayer = null;
     let tilesetGeneration = 0;
-    let imageryGeneration = 0;
 
     function setStatus(message) {
       $("status").textContent = message;
@@ -338,13 +343,29 @@
       const details = [];
       if (error.name) details.push(`名前: ${error.name}`);
       if (error.message) details.push(`内容: ${error.message}`);
-      if (error.statusCode) details.push(`HTTP: ${error.statusCode}`);
-      if (error.response?.status) {
-        details.push(`HTTP: ${error.response.status}`);
-      }
+
+      const statusCode = error.statusCode || error.response?.status;
+      if (statusCode) details.push(`HTTP: ${statusCode}`);
+
       if (error.response?.statusText) {
         details.push(`応答: ${error.response.statusText}`);
       }
+
+      // Cesium ion のエラー本文が取得できる場合は表示する。
+      const response = error.response;
+      if (typeof response === "string" && response.trim()) {
+        details.push(`応答本文: ${response.slice(0, 500)}`);
+      } else if (response && typeof response === "object") {
+        try {
+          const body = JSON.stringify(response);
+          if (body && body !== "{}") {
+            details.push(`応答本文: ${body.slice(0, 500)}`);
+          }
+        } catch (_) {
+          // エラー内容の整形に失敗した場合は無視します。
+        }
+      }
+
       if (error.cause?.message) {
         details.push(`原因: ${error.cause.message}`);
       }
@@ -355,7 +376,8 @@
     async function fetchIonToken() {
       const response = await fetch("/api/cesium-token", {
         method: "GET",
-        cache: "no-store"
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
       });
 
       if (!response.ok) {
@@ -365,28 +387,21 @@
       const data = await response.json();
 
       if (typeof data.token !== "string" || !data.token.trim()) {
-        throw new Error("トークンが空です");
+        throw new Error("トークンAPIから有効な token が返されませんでした。");
       }
 
       return data.token.trim();
     }
 
-    function updateControls() {
-      document.querySelectorAll("[data-body]").forEach((button) => {
-        button.classList.toggle(
-          "selected",
-          button.dataset.body === activeBody
-        );
-      });
+    function renderInfo(state = "読み込み中") {
+      const body = BODIES[activeBody];
 
-      $("imagerySelect").disabled = activeBody !== "earth";
-      $("mapDescription").hidden = activeBody !== "earth";
-      updateMapDescription();
-    }
-
-    function updateMapDescription() {
-      const map = IMAGERY[$("imagerySelect").value];
-      $("mapDescription").textContent = map ? map.description : "";
+      $("infoContent").textContent =
+        `天体: ${body.name}\n` +
+        `3D Tiles Asset ID: ${body.assetId}\n` +
+        `データ: ${body.dataName}\n` +
+        `地球に対する大きさ: ${(body.sizeRatio * 100).toPrecision(4)}%\n` +
+        `状態: ${state}`;
     }
 
     function removeCurrentTileset() {
@@ -401,21 +416,6 @@
       }
 
       currentTileset = null;
-    }
-
-    function removeImageryLayer() {
-      if (!viewer || !imageryLayer) {
-        imageryLayer = null;
-        return;
-      }
-
-      try {
-        viewer.imageryLayers.remove(imageryLayer, true);
-      } catch (error) {
-        console.warn("画像レイヤーを削除できませんでした:", error);
-      }
-
-      imageryLayer = null;
     }
 
     function showEarthView() {
@@ -452,7 +452,7 @@
         offset: new Cesium.HeadingPitchRange(
           0,
           Cesium.Math.toRadians(-25),
-          Math.max(sphere.radius * 2.8, 1000)
+          Math.max(sphere.radius * 2.8, 10)
         )
       });
 
@@ -471,67 +471,6 @@
       }
     }
 
-    function renderInfo(state = "読み込み中") {
-      const body = BODIES[activeBody];
-      let dataName = body.dataName;
-
-      if (activeBody === "earth") {
-        const imagery = IMAGERY[$("imagerySelect").value];
-        if (imagery) {
-          dataName += ` / ${imagery.name} (Asset ID: ${imagery.assetId})`;
-        }
-      }
-
-      $("infoContent").textContent =
-        `天体: ${body.name}\n` +
-        `3D Tiles Asset ID: ${body.assetId}\n` +
-        `データ: ${dataName}\n` +
-        `状態: ${state}`;
-    }
-
-    async function loadImagery() {
-      if (!viewer || activeBody !== "earth") return;
-
-      const requestId = ++imageryGeneration;
-      const selected = IMAGERY[$("imagerySelect").value];
-      if (!selected) return;
-
-      updateMapDescription();
-      setStatus(`${selected.name}を読み込み中…`);
-      renderInfo("地図を読み込み中");
-
-      try {
-        const provider =
-          await Cesium.IonImageryProvider.fromAssetId(selected.assetId);
-
-        if (requestId !== imageryGeneration || activeBody !== "earth") {
-          return;
-        }
-
-        removeImageryLayer();
-        imageryLayer = viewer.imageryLayers.addImageryProvider(provider);
-
-        setStatus(`${selected.name}を表示しています。`);
-        renderInfo("地図の読み込み完了");
-      } catch (error) {
-        if (requestId !== imageryGeneration) return;
-
-        console.error(
-          `画像レイヤーの読み込みエラー。Asset ID: ${selected.assetId}`,
-          error
-        );
-
-        const details = getErrorDetails(error);
-        setStatus(
-          `${selected.name}を読み込めません。\n` +
-          `Asset ID: ${selected.assetId}\n${details}\n` +
-          "Assetの有効性とトークンの利用権限を確認してください。"
-        );
-
-        renderInfo(`地図の読み込み失敗: ${details}`);
-      }
-    }
-
     async function loadActiveTileset() {
       if (!viewer) return;
 
@@ -541,15 +480,10 @@
       const isEarth = bodyKey === "earth";
 
       removeCurrentTileset();
+
       viewer.scene.globe.show = isEarth;
       viewer.scene.skyAtmosphere.show = isEarth;
 
-      if (!isEarth) {
-        imageryGeneration++;
-        removeImageryLayer();
-      }
-
-      updateControls();
       setStatus(`${body.dataName}を読み込み中…`);
       renderInfo("3Dデータ読み込み中");
 
@@ -558,6 +492,7 @@
           body.assetId
         );
 
+        // 読み込み中に天体が切り替わった場合、古い Tileset は破棄します。
         if (requestId !== tilesetGeneration) {
           if (!tileset.isDestroyed()) tileset.destroy();
           return;
@@ -565,6 +500,9 @@
 
         tileset.show = true;
         tileset.maximumScreenSpaceError = 8;
+
+        // 地球を基準とした大きさの調整
+        tileset.modelMatrix = Cesium.Matrix4.fromUniformScale(body.sizeRatio);
 
         if (tileset.tileFailed) {
           tileset.tileFailed.addEventListener((event) => {
@@ -578,7 +516,8 @@
         if (isEarth) {
           viewer.scene.globe.show = true;
           viewer.scene.skyAtmosphere.show = true;
-          setStatus(`${body.dataName}を読み込みました。`);
+          showEarthView();
+          setStatus(`${body.dataName}を表示しています。`);
         } else {
           viewer.scene.globe.show = false;
           viewer.scene.skyAtmosphere.show = false;
@@ -586,7 +525,7 @@
           const cameraMoved = focusTileset(tileset);
           setStatus(
             cameraMoved
-              ? `${body.name}の3D Tilesを読み込みました。\n全体表示へカメラを移動しました。`
+              ? `${body.name}の3D Tilesを表示しています。`
               : `${body.name}の3D Tilesは読み込みましたが、表示範囲を取得できませんでした。`
           );
         }
@@ -607,7 +546,7 @@
         setStatus(
           `${body.dataName}を読み込めません。\n` +
           `Asset ID: ${body.assetId}\n${details}\n` +
-          "Assetの有効性とトークンの利用権限を確認してください。"
+          "トークンが有効か、Assetへのアクセス権があるか確認してください。"
         );
 
         renderInfo(`3Dデータ読み込み失敗: ${details}`);
@@ -620,24 +559,8 @@
       }
 
       activeBody = bodyKey;
-      updateControls();
-
-      if (bodyKey === "earth") {
-        viewer.scene.globe.show = true;
-        viewer.scene.skyAtmosphere.show = true;
-        showEarthView();
-
-        await Promise.all([
-          loadActiveTileset(),
-          loadImagery()
-        ]);
-      } else {
-        viewer.scene.globe.show = false;
-        viewer.scene.skyAtmosphere.show = false;
-        imageryGeneration++;
-        removeImageryLayer();
-        await loadActiveTileset();
-      }
+      $("bodySelect").value = bodyKey;
+      await loadActiveTileset();
     }
 
     async function searchLocation(event) {
@@ -670,6 +593,7 @@
         }
 
         const result = results[0];
+
         if (result.destination) {
           viewer.camera.flyTo({
             destination: result.destination,
@@ -687,15 +611,8 @@
     }
 
     function setupControls() {
-      document.querySelectorAll("[data-body]").forEach((button) => {
-        button.addEventListener("click", () => {
-          switchBody(button.dataset.body);
-        });
-      });
-
-      $("imagerySelect").addEventListener("change", () => {
-        updateMapDescription();
-        if (activeBody === "earth") loadImagery();
+      $("bodySelect").addEventListener("change", (event) => {
+        switchBody(event.target.value);
       });
 
       $("searchForm").addEventListener("submit", searchLocation);
@@ -770,13 +687,8 @@
       controller.inertiaZoom = 0.7;
 
       setupControls();
-      updateControls();
       showEarthView();
-
-      await Promise.all([
-        loadActiveTileset(),
-        loadImagery()
-      ]);
+      await loadActiveTileset();
     }
 
     start();
